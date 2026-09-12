@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>舞台演出プランナー</title>
 <link rel="stylesheet" href="style.css">
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 </head>
 <body class="light-mode">
 
@@ -29,29 +28,18 @@
     </div>
 
     <div class="modal-section" id="section-effect-toggle" style="display:none;">
-      <p class="modal-question">2色以上の背景高速切替（effect）</p>
+      <p class="modal-question">設定2：2色以上の高速切り替え（Effect）</p>
       <div class="choice-row">
-        <button class="choice-btn simple" data-group="effect" data-value="original">独自</button>
-        <button class="choice-btn simple" data-group="effect" data-value="existing">既存</button>
-        <button class="choice-btn simple" data-group="effect" data-value="none">なし</button>
+        <button class="choice-btn simple" data-group="effectOnOff" data-value="on">あり</button>
+        <button class="choice-btn simple" data-group="effectOnOff" data-value="off">なし</button>
       </div>
     </div>
 
-    <div class="modal-section" id="section-strobe-toggle">
-      <p class="modal-question">設定2：ストロボ クルクル / チカチカ / なし</p>
+    <div class="modal-section" id="section-effect-kind" style="display:none;">
+      <p class="modal-question">Effectの種類選択</p>
       <div class="choice-row">
-        <button class="choice-btn" data-group="strobeType" data-value="kurukuru">
-          <video data-asset-path="mov/kurukuru.mov" class="choice-video" muted loop playsinline autoplay onerror="this.style.background='#E26D6C';this.removeAttribute('src')"></video>
-          <span class="choice-label">クルクル</span>
-        </button>
-        <button class="choice-btn" data-group="strobeType" data-value="chikachika">
-          <video data-asset-path="mov/chikachika.mov" class="choice-video" muted loop playsinline autoplay onerror="this.style.background='#FFD166';this.removeAttribute('src')"></video>
-          <span class="choice-label">チカチカ</span>
-        </button>
-        <button class="choice-btn" data-group="strobeType" data-value="nashi">
-          <video data-asset-path="mov/nashi.mov" class="choice-video" muted loop playsinline autoplay onerror="this.style.background='#888';this.removeAttribute('src')"></video>
-          <span class="choice-label">なし</span>
-        </button>
+        <button class="choice-btn simple" data-group="effectKind" data-value="existing">既存Effect</button>
+        <button class="choice-btn simple" data-group="effectKind" data-value="original">独自Effect</button>
       </div>
     </div>
 
@@ -74,16 +62,44 @@
 <div id="adminModal" class="modal-overlay hidden">
   <div class="modal-box admin-box">
     <h3>管理者画面：ボタン画像／動画アップロード</h3>
-    <p class="hint">アップロードしたファイルはブラウザ内に自動保存され、img／movフォルダの代わりとして各ボタンに即時反映されます。</p>
+    <p class="hint">アップロードしたファイルはブラウザ内に自動保存され、img／movフォルダの代わりとして各ボタン・ステージ表示に即時反映されます（実ファイルはGitHub連携保存時にimgフォルダへコミットされます）。</p>
+
+    <h4>初期選択ボタン画像</h4>
     <div class="admin-asset-row" data-path="img/choice_background-O.jpg"><span>背景色あり ボタン画像</span><input type="file" accept="image/*"></div>
     <div class="admin-asset-row" data-path="img/choice_background-X.jpg"><span>背景色なし ボタン画像</span><input type="file" accept="image/*"></div>
+
+    <h4>背景色なし用 デフォルト画像</h4>
     <div class="admin-asset-row" data-path="img/anten.jpg"><span>暗転 ステージ画像</span><input type="file" accept="image/*"></div>
     <div class="admin-asset-row" data-path="img/zensyou.jpg"><span>全照 ステージ画像</span><input type="file" accept="image/*"></div>
     <div class="admin-asset-row" data-path="img/hansyou.jpg"><span>50% ステージ画像</span><input type="file" accept="image/*"></div>
-    <div class="admin-asset-row" data-path="mov/kurukuru.mov"><span>ストロボ「クルクル」動画</span><input type="file" accept="video/*"></div>
-    <div class="admin-asset-row" data-path="mov/chikachika.mov"><span>ストロボ「チカチカ」動画</span><input type="file" accept="video/*"></div>
-    <div class="admin-asset-row" data-path="mov/nashi.mov"><span>ストロボ「なし」動画</span><input type="file" accept="video/*"></div>
+
+    <h4>背景色あり用 個別アセット（舞台・ストロボ・色）</h4>
+    <div class="admin-dynamic-row">
+      <select id="adminAssetKind"><option value="img">画像(img)</option><option value="mov">動画(mov)</option></select>
+      <select id="adminAssetStage"><option value="暗転">暗転</option><option value="全照">全照</option><option value="半照">半照</option></select>
+      <select id="adminAssetStrobe">
+        <option value="ストロボ✖">ストロボ✖</option>
+        <option value="ストロボ静止">ストロボ静止</option>
+        <option value="ストロボちかちか">ストロボちかちか</option>
+        <option value="ストロボくるくる">ストロボくるくる</option>
+      </select>
+      <select id="adminAssetColor"></select>
+      <label class="file-btn">ファイル選択<input type="file" id="adminAssetFile" accept="image/*,video/*" hidden></label>
+      <span id="adminAssetPathPreview" class="hint"></span>
+    </div>
+
     <button id="adminCloseBtn" class="primary-btn">閉じる</button>
+  </div>
+</div>
+
+<!-- ==================== フェード秒数モーダル ==================== -->
+<div id="fadeSecModal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <h3>フェード秒数の設定</h3>
+    <p class="hint">画像／背景が切り替わる際のフェード時間（秒）です。</p>
+    <input type="number" id="fadeSecInput" min="0" step="0.1" style="width:100%;padding:8px;margin:8px 0;">
+    <button id="fadeSecSaveBtn" class="primary-btn">保存</button>
+    <button id="fadeSecCancelBtn" style="width:100%;margin-top:8px;">キャンセル</button>
   </div>
 </div>
 
@@ -101,17 +117,19 @@
   </div>
   <div class="header-right">
     <button id="darkModeToggle" title="ダーク/ライト切替">🌙</button>
-    <button id="exportJsonBtn">JSON出力</button>
-    <label class="file-btn">JSON読込<input type="file" id="importJsonInput" accept=".json" hidden></label>
-    <button id="printBtn">印刷/PDF</button>
-    <button id="qrBtn">QR生成</button>
+    <span id="initGatedGroup" class="hidden inline-group">
+      <button id="exportJsonBtn">JSON出力</button>
+      <label class="file-btn">JSON読込<input type="file" id="importJsonInput" accept=".json" hidden></label>
+      <button id="printBtn">印刷/PDF</button>
+      <button id="reopenInitBtn">初期設定</button>
+    </span>
     <div class="login-area">
       <button id="loginBtn">ログイン</button>
       <button id="settingsMenuBtn" class="hidden">⚙ 設定</button>
       <div id="settingsMenu" class="settings-menu hidden">
         <button id="exportCsvBtn">CSV出力</button>
         <button id="lockModeToggle">🔓 練習モード</button>
-        <button id="reopenInitBtn">初期設定</button>
+        <button id="fadeSecBtn">フェード秒数</button>
         <button id="openAdminBtn">管理者画面</button>
         <button id="logoutBtn">ログアウト</button>
       </div>
@@ -144,12 +162,13 @@
     </div>
   </aside>
 
-  <!-- 上/左：台本・動画・Cueエリア -->
+  <!-- 上/左：台本・動画・Cue・独自Effectエリア -->
   <section id="scriptArea" class="content-area">
     <div class="tab-row">
       <button class="tab-btn active" data-tab="script">台本</button>
       <button class="tab-btn" data-tab="video">動画</button>
       <button class="tab-btn" data-tab="cue">Cue</button>
+      <button class="tab-btn" data-tab="customfx">独自Effect</button>
     </div>
 
     <div id="tab-script" class="tab-pane active">
@@ -159,7 +178,9 @@
           <button id="tokakiBtn">ト書き行にする</button>
           <button id="autoMatchBtn">話者自動マッチング</button>
           <button id="speakRowBtn">🔊 読み上げ</button>
-          <button id="scriptCueBtn">📍 Cue記録</button>
+        </div>
+        <div class="toolbar-row">
+          <button id="scriptCueBtn" class="cue-record-btn">📍 Cue記録</button>
         </div>
         <div class="toolbar-row">
           <label class="file-btn">音源読込<input type="file" id="scriptAudioInput" accept="audio/*" hidden></label>
@@ -179,31 +200,40 @@
 
       <h3 class="cue-mirror-title">Cue一覧</h3>
       <table class="cue-table">
-        <thead><tr><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>chs</th><th>ストロボ</th><th>フェード</th><th></th></tr></thead>
+        <thead><tr><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th><th></th></tr></thead>
         <tbody id="cueTableBody_script"></tbody>
       </table>
     </div>
 
     <div id="tab-video" class="tab-pane">
+      <button id="videoCueBtn" class="cue-record-btn">📍 Cue記録</button>
       <label class="file-btn">動画ファイル選択<input type="file" id="videoInput" accept="video/*" hidden></label>
       <video id="rehearsalVideo" controls></video>
       <div class="cue-capture-row">
-        <button id="captureCueBtn">📍 Cue記録（現在の動画秒数）</button>
         <span id="currentVideoTime">0.0秒</span>
       </div>
       <table class="cue-table">
-        <thead><tr><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>chs</th><th>ストロボ</th><th>フェード</th><th></th></tr></thead>
+        <thead><tr><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th><th></th></tr></thead>
         <tbody id="cueTableBody_video"></tbody>
       </table>
     </div>
 
     <div id="tab-cue" class="tab-pane">
       <div class="cue-capture-row">
-        <button id="cueTabAddBtn">📍 Cue記録（新規行を追加）</button>
+        <button id="cueTabAddBtn" class="cue-record-btn">📍 Cue記録</button>
       </div>
       <table class="cue-table">
-        <thead><tr><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>chs</th><th>ストロボ</th><th>フェード</th><th></th></tr></thead>
+        <thead><tr><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th><th></th></tr></thead>
         <tbody id="cueTableBody_cue"></tbody>
+      </table>
+    </div>
+
+    <div id="tab-customfx" class="tab-pane">
+      <button id="customfxCueBtn" class="cue-record-btn">📍 Cue記録</button>
+      <p class="hint">高速切り替えが「独自Effect」の場合に、ステージ画面の保存操作で追加された独自Effectの記録一覧です。</p>
+      <table class="cue-table">
+        <thead><tr><th>No.</th><th>ステップ</th><th>秒数</th><th>背景色</th><th>ストロボ</th><th></th></tr></thead>
+        <tbody id="customFxTableBody"></tbody>
       </table>
     </div>
   </section>
@@ -215,31 +245,37 @@
       <button class="stage-btn" data-stage="zensyou">全照</button>
       <button class="stage-btn" data-stage="hansyou">50%</button>
     </div>
+
     <div id="stagePreview" class="stage-preview">
       <img id="stageBgImg" src="" alt="" class="stage-bg-img">
+      <video id="stageBgVideo" class="stage-bg-img hidden" muted loop playsinline autoplay></video>
       <div id="stageColorFilter" class="stage-color-filter"></div>
       <div id="stageItemsLayer"></div>
     </div>
-    <div class="color-toggle-row" id="stageColorToggles"></div>
-    <div class="strobe-controls">
-      <label>ストロボ chs <input type="number" id="strobeChs" value="1" min="1" max="16" style="width:60px;"></label>
-      <button id="strobeToggleBtn">ストロボ ON/OFF</button>
-      <label>フェード秒数 <input type="number" id="fadeSeconds" value="1" min="0" step="0.1" style="width:60px;"></label>
+
+    <div class="stage-color-section" id="stageColorSection">
+      <button id="strobeToggleBtn" class="side-btn strobe-btn"></button>
+      <div class="color-toggle-row" id="stageColorToggles"></div>
+      <div class="side-btn-group">
+        <button id="effectToggleBtn" class="side-btn effect-btn hidden"></button>
+        <button id="fadeModeBtn" class="side-btn fade-btn">フェードなし</button>
+      </div>
     </div>
+
+    <div class="custom-effect-row hidden" id="customEffectAddRow">
+      <label>No.<input type="number" id="cfxNo" min="1" step="1" style="width:60px;"></label>
+      <label>ステップ<input type="number" id="cfxStep" min="1" step="1" style="width:60px;"></label>
+      <label>秒数<input type="number" id="cfxSec" min="0" step="0.1" style="width:70px;"></label>
+      <button id="cfxSaveBtn">保存</button>
+    </div>
+
     <div class="stage-item-add">
       <label class="file-btn">配置アイテム画像追加<input type="file" id="stageItemInput" accept="image/*" hidden></label>
+      <label class="file-btn">ステージ動画を直接指定<input type="file" id="stageVideoInput" accept="video/*" hidden></label>
     </div>
   </section>
 
 </main>
-
-<div id="qrModal" class="modal-overlay hidden">
-  <div class="modal-box">
-    <h3>QRコード（設定データ）</h3>
-    <div id="qrCanvasHolder"></div>
-    <button id="qrCloseBtn">閉じる</button>
-  </div>
-</div>
 
 <footer id="printFooter">
   <div class="print-area-wrapper" id="printArea"></div>

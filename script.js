@@ -1,31 +1,62 @@
 /* =========================================================
-   舞台演出プランナー script.js
+   舞台演出プランナー script.js  (追加要望②対応版)
    ========================================================= */
 'use strict';
 
-const STORAGE_KEY = 'stagePlanner_state_v1';
-const COLOR_PALETTE = ['#E26D6C','#F4A462','#FFD166','#95C68A','#68A1A4','#5AA4DE','#8974BA','#C47297'];
+const STORAGE_KEY = 'stagePlanner_state_v2';
+// 背景色8色（色相順・中央寄せ表示）赤→オレンジ→黄色→緑→青緑→青→ピンク→白
+const COLOR_PALETTE = [
+  {name:'赤',     hex:'#E26D6C'},
+  {name:'オレンジ', hex:'#F4A462'},
+  {name:'黄色',   hex:'#FFD166'},
+  {name:'緑',     hex:'#95C68A'},
+  {name:'青緑',   hex:'#68A1A4'},
+  {name:'青',     hex:'#5AA4DE'},
+  {name:'ピンク', hex:'#C47297'},
+  {name:'白',     hex:'#FFFFFF'}
+];
 const MIC_CYCLE = ['ワイヤレス1','ワイヤレス2','ワイヤレス3','ワイヤレス4','有線1','有線2','有線3','有線4'];
 const LOGIN_PASSWORD = 'admin1234'; // デモ用固定パスワード
 
+const STAGE_FOLDER = {anten:'暗転', zensyou:'全照', hansyou:'半照'};
+const STROBE_FOLDER = {none:'ストロボ✖', static:'ストロボ静止', chikachika:'ストロボちかちか', kurukuru:'ストロボくるくる'};
+const STROBE_LABEL_CUE = {static:'◯', chikachika:'チカチカ', kurukuru:'Effect1', none:'なし'};
+const STROBE_BTN_LABEL = {static:'ストロボ静止', chikachika:'ストロボチカチカ', kurukuru:'ストロボクルクル', none:'ストロボ✖️'};
+const EXISTING_STROBE_CYCLE = ['static','chikachika','kurukuru','none'];
+const ORIGINAL_STROBE_CYCLE = ['none','static','chikachika','kurukuru'];
+const EFFECT_SUBMODE_LABEL = {none:'Effectなし', existing:'既存Effect', original:'独自Effect'};
+const FADE_CYCLE = ['none','in','out'];
+const FADE_LABEL = {none:'フェードなし', in:'フェードイン', out:'フェードアウト'};
+
 let state = {
   initDone:false,
-  bgColorMode:null,       // 'on' | 'off'
-  effectType:null,        // 'original' | 'existing' | 'none'（背景色あり時のみ使用）
-  strobeType:null,        // 'kurukuru' | 'chikachika' | 'nashi'
+  bgColorMode:null,        // 'on' | 'off'
+  effectOnOff:null,        // 'on' | 'off'（背景色あり時の設定2）
+  effectKind:null,         // 'existing' | 'original'
+  effectType:null,         // 'none' | 'existing' | 'original'（背景色あり時のみ使用）
   darkMode:false,
   locked:false,
   loggedIn:false,
-  cast:[],                // {id,name,actor,mic,color,edit}
+  cast:[],                 // {id,name,actor,mic,color,edit}
   scriptHTML:'',
   gdocUrl:'',
-  cues:[],                 // {sec,line,audio,stage,bg,chs,strobe,fade}
+  cues:[],                  // {sec,line,audio,stage,bg,effect,strobe,fade}
   stageState:'zensyou',
-  activeColor:null,
-  stageItems:[],            // {id,src,x,y}
-  versionMemos:[],
+  activeColorIndex:null,    // COLOR_PALETTE のインデックス
+  strobeOn:false,           // effectType==='none' の場合の単純ON/OFF
+  strobeMode:'none',        // effectType==='existing'|'original' の場合の状態
+  effectOn:false,           // effectType==='existing' の場合のEffect ON/OFF
+  effectSubMode:'none',     // effectType==='original' の場合のEffect状態(none/existing/original)
+  fadeMode:'none',          // 'none' | 'in' | 'out'
+  fadeDurationSec:1,
+  stageItems:[],             // {id,src,x,y}
+  stageVideoOverride:'',     // 手動指定したステージ動画（ローカルセッションのみ）
+  customEffects:[],          // {id,no,step,sec,colorName,strobeLabel}
+  versionMemos:[],           // {id,text,date,snapshot}
   stopwatch:{elapsed:0,running:false},
-  adminAssets:{}             // { "img/xxx.jpg": "data:...", "mov/xxx.mov": "data:..." }
+  adminAssets:{},            // { "img/xxx.png": "data:...", "mov/xxx.mov": "data:..." }
+  currentAudioLabel:'-',
+  audioSourceCount:0
 };
 
 let swInterval=null, swStart=0;
@@ -48,6 +79,21 @@ function loadState(){
 function resolveAsset(path){
   return (state.adminAssets && state.adminAssets[path]) ? state.adminAssets[path] : path;
 }
+function circledNum(n){
+  if(n<1) return '-';
+  if(n<=20) return String.fromCodePoint(0x2460+n-1);
+  return '('+n+')';
+}
+function currentColorName(){
+  if(state.activeColorIndex==null) return null;
+  const c = COLOR_PALETTE[state.activeColorIndex];
+  return c ? c.name : null;
+}
+function currentColorHex(){
+  if(state.activeColorIndex==null) return null;
+  const c = COLOR_PALETTE[state.activeColorIndex];
+  return c ? c.hex : null;
+}
 
 /* ============================================================
    初期選択モーダル
@@ -67,30 +113,45 @@ function initModalLogic(){
       const group = btn.dataset.group;
       $all(`.choice-btn[data-group="${group}"]`).forEach(b=>b.classList.remove('selected'));
       btn.classList.add('selected');
+
       if(group==='bgColor'){
         state.bgColorMode = btn.dataset.value;
         const showEffect = state.bgColorMode==='on';
         $('#section-effect-toggle').style.display = showEffect ? 'block' : 'none';
         if(!showEffect){
-          state.effectType = null;
-          $all('.choice-btn[data-group="effect"]').forEach(b=>b.classList.remove('selected'));
+          state.effectOnOff=null; state.effectKind=null; state.effectType=null;
+          $('#section-effect-kind').style.display='none';
+          $all('.choice-btn[data-group="effectOnOff"],.choice-btn[data-group="effectKind"]').forEach(b=>b.classList.remove('selected'));
         }
       }
-      if(group==='effect') state.effectType = btn.dataset.value;
-      if(group==='strobeType') state.strobeType = btn.dataset.value;
+      if(group==='effectOnOff'){
+        state.effectOnOff = btn.dataset.value;
+        const showKind = state.effectOnOff==='on';
+        $('#section-effect-kind').style.display = showKind ? 'block' : 'none';
+        if(!showKind){
+          state.effectKind=null;
+          state.effectType='none';
+          $all('.choice-btn[data-group="effectKind"]').forEach(b=>b.classList.remove('selected'));
+        }
+      }
+      if(group==='effectKind'){
+        state.effectKind = btn.dataset.value;
+        state.effectType = btn.dataset.value; // 'existing' | 'original'
+      }
       checkModalReady();
     });
   });
 
   $('#startAppBtn').addEventListener('click', ()=>{
     state.initDone = true;
+    state.strobeOn=false; state.strobeMode='none'; state.effectOn=false; state.effectSubMode='none';
     $('#initModal').classList.add('hidden');
     saveState();
     applyAllSettingsToUI();
   });
 
   function adjustLabelFontSize(){
-    $all('.choice-img,.choice-video').forEach(media=>{
+    $all('.choice-img').forEach(media=>{
       const h = media.getBoundingClientRect().height || 110;
       const label = media.parentElement.querySelector('.choice-label');
       if(label) label.style.fontSize = Math.max(10, h/5) + 'px';
@@ -102,10 +163,16 @@ function initModalLogic(){
 }
 function checkModalReady(){
   const bgSelected = !!$('.choice-btn.selected[data-group="bgColor"]');
-  const strobeSelected = !!$('.choice-btn.selected[data-group="strobeType"]');
-  const effectNeeded = state.bgColorMode === 'on';
-  const effectSelected = !effectNeeded || !!$('.choice-btn.selected[data-group="effect"]');
-  $('#startAppBtn').disabled = !(bgSelected && strobeSelected && effectSelected);
+  let ready = bgSelected;
+  if(state.bgColorMode==='on'){
+    const effectOnOffSelected = !!$('.choice-btn.selected[data-group="effectOnOff"]');
+    ready = ready && effectOnOffSelected;
+    if(state.effectOnOff==='on'){
+      const kindSelected = !!$('.choice-btn.selected[data-group="effectKind"]');
+      ready = ready && kindSelected;
+    }
+  }
+  $('#startAppBtn').disabled = !ready;
 }
 function prefillModalSelections(){
   $all('.choice-btn').forEach(b=>b.classList.remove('selected'));
@@ -114,23 +181,25 @@ function prefillModalSelections(){
     if(b) b.classList.add('selected');
   }
   $('#section-effect-toggle').style.display = state.bgColorMode==='on' ? 'block' : 'none';
-  if(state.effectType){
-    const b = $(`.choice-btn[data-group="effect"][data-value="${state.effectType}"]`);
+  if(state.effectOnOff){
+    const b = $(`.choice-btn[data-group="effectOnOff"][data-value="${state.effectOnOff}"]`);
     if(b) b.classList.add('selected');
   }
-  if(state.strobeType){
-    const b = $(`.choice-btn[data-group="strobeType"][data-value="${state.strobeType}"]`);
+  $('#section-effect-kind').style.display = (state.bgColorMode==='on' && state.effectOnOff==='on') ? 'block' : 'none';
+  if(state.effectKind){
+    const b = $(`.choice-btn[data-group="effectKind"][data-value="${state.effectKind}"]`);
     if(b) b.classList.add('selected');
   }
   checkModalReady();
 }
 
 /* ============================================================
-   ログイン / 設定メニュー / 管理者画面
+   ログイン / 設定 / 管理者画面 / フェード秒数
    ============================================================ */
 function updateLoginUI(){
   $('#loginBtn').classList.toggle('hidden', state.loggedIn);
   $('#settingsMenuBtn').classList.toggle('hidden', !state.loggedIn);
+  $('#initGatedGroup').classList.toggle('hidden', !state.loggedIn);
   if(!state.loggedIn) $('#settingsMenu').classList.add('hidden');
 }
 $('#loginBtn').addEventListener('click', ()=>{
@@ -157,7 +226,6 @@ $('#logoutBtn').addEventListener('click', ()=>{
   saveState();
 });
 $('#reopenInitBtn').addEventListener('click', ()=>{
-  $('#settingsMenu').classList.add('hidden');
   prefillModalSelections();
   $('#initModal').classList.remove('hidden');
 });
@@ -178,10 +246,59 @@ $all('.admin-asset-row').forEach(row=>{
       state.adminAssets[path] = ev.target.result;
       saveState();
       applyModalAssets();
-      applyStageState();
+      updateStagePreviewMedia();
     };
     reader.readAsDataURL(file);
   });
+});
+
+// 個別アセット（舞台×ストロボ×色）のアップロード
+function populateAdminColorSelect(){
+  const sel = $('#adminAssetColor');
+  sel.innerHTML='';
+  COLOR_PALETTE.forEach(c=>{
+    const opt=document.createElement('option'); opt.value=c.name; opt.textContent=c.name; sel.appendChild(opt);
+  });
+}
+function updateAdminAssetPathPreview(){
+  const kind=$('#adminAssetKind').value, stage=$('#adminAssetStage').value, strobe=$('#adminAssetStrobe').value, color=$('#adminAssetColor').value;
+  const ext = kind==='mov' ? 'mov' : 'png';
+  $('#adminAssetPathPreview').textContent = `保存先: ${kind}/${stage}/${strobe}/${color}.${ext}`;
+}
+['adminAssetKind','adminAssetStage','adminAssetStrobe','adminAssetColor'].forEach(id=>{
+  document.getElementById(id).addEventListener('change', updateAdminAssetPathPreview);
+});
+$('#adminAssetFile').addEventListener('change', e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const kind=$('#adminAssetKind').value, stage=$('#adminAssetStage').value, strobe=$('#adminAssetStrobe').value, color=$('#adminAssetColor').value;
+  const ext = kind==='mov' ? 'mov' : 'png';
+  const path = `${kind}/${stage}/${strobe}/${color}.${ext}`;
+  const reader = new FileReader();
+  reader.onload = ev=>{
+    state.adminAssets[path] = ev.target.result;
+    saveState();
+    updateStagePreviewMedia();
+    alert('保存しました: '+path);
+  };
+  reader.readAsDataURL(file);
+});
+
+// フェード秒数設定
+$('#fadeSecBtn').addEventListener('click', ()=>{
+  $('#settingsMenu').classList.add('hidden');
+  $('#fadeSecInput').value = state.fadeDurationSec;
+  $('#fadeSecModal').classList.remove('hidden');
+});
+$('#fadeSecCancelBtn').addEventListener('click', ()=>{ $('#fadeSecModal').classList.add('hidden'); });
+$('#fadeSecSaveBtn').addEventListener('click', ()=>{
+  const v = parseFloat($('#fadeSecInput').value);
+  if(!isNaN(v) && v>=0){
+    state.fadeDurationSec = v;
+    document.documentElement.style.setProperty('--fade-sec', v+'s');
+    saveState();
+  }
+  $('#fadeSecModal').classList.add('hidden');
 });
 
 // メニュー外クリックで閉じる
@@ -203,15 +320,19 @@ function applyAllSettingsToUI(){
   $('#darkModeToggle').textContent = state.darkMode ? '☀' : '🌙';
   $('#scriptEditor').innerHTML = state.scriptHTML || '';
   $('#gdocUrlInput').value = state.gdocUrl || '';
+  document.documentElement.style.setProperty('--fade-sec', (state.fadeDurationSec||1)+'s');
   updateLoginUI();
   applyModalAssets();
   renderCastList();
   renderCueTable();
+  renderCustomFxTable();
   renderColorToggles();
   renderStageItems();
   renderVersionMemos();
-  applyStageState();
-  applyColorFilter();
+  updateStrobeUI();
+  updateEffectUI();
+  updateFadeUI();
+  updateStagePreviewMedia();
   setupGdocAutoSync();
 }
 
@@ -261,12 +382,21 @@ $('#swResetBtn').addEventListener('click', ()=>{
 });
 
 /* ============================================================
-   バージョン管理メモ
+   バージョン管理メモ ＆ 復元
    ============================================================ */
+function buildSnapshot(){
+  return JSON.parse(JSON.stringify({
+    cast:state.cast, scriptHTML:state.scriptHTML, cues:state.cues, customEffects:state.customEffects,
+    stageState:state.stageState, activeColorIndex:state.activeColorIndex,
+    bgColorMode:state.bgColorMode, effectOnOff:state.effectOnOff, effectKind:state.effectKind, effectType:state.effectType,
+    strobeOn:state.strobeOn, strobeMode:state.strobeMode, effectOn:state.effectOn, effectSubMode:state.effectSubMode,
+    fadeMode:state.fadeMode, fadeDurationSec:state.fadeDurationSec, stageItems:state.stageItems, gdocUrl:state.gdocUrl
+  }));
+}
 $('#versionMemoAddBtn').addEventListener('click', ()=>{
   const val = $('#versionMemoInput').value.trim();
   if(!val) return;
-  state.versionMemos.unshift({id:uid(), text:val, date:new Date().toLocaleString('ja-JP')});
+  state.versionMemos.unshift({id:uid(), text:val, date:new Date().toLocaleString('ja-JP'), snapshot:buildSnapshot()});
   $('#versionMemoInput').value='';
   renderVersionMemos();
   saveState();
@@ -276,14 +406,29 @@ function renderVersionMemos(){
   list.innerHTML='';
   state.versionMemos.slice(0,20).forEach(m=>{
     const li=document.createElement('li');
-    li.textContent = `${m.text}（${m.date}）`;
+    const span=document.createElement('span');
+    span.textContent = `${m.text}（${m.date}）`;
+    li.appendChild(span);
+    if(m.snapshot){
+      const restoreBtn = document.createElement('button');
+      restoreBtn.className='restore-btn';
+      restoreBtn.textContent='復元';
+      restoreBtn.addEventListener('click', ()=>{
+        if(confirm(`「${m.text}」の状態に復元しますか？現在の内容は上書きされます。`)){
+          Object.assign(state, m.snapshot);
+          applyAllSettingsToUI();
+          saveState();
+        }
+      });
+      li.appendChild(restoreBtn);
+    }
     list.appendChild(li);
   });
   $('#versionMemoDisplay').textContent = state.versionMemos[0] ? state.versionMemos[0].text : '';
 }
 
 /* ============================================================
-   配役パネル
+   配役パネル（閉時は非表示のみ。3文字強制切り出しは行わない）
    ============================================================ */
 $('#castPanelToggle').addEventListener('click', ()=>{
   const panel = $('#castPanel');
@@ -306,7 +451,7 @@ $('#castAddBtn').addEventListener('click', ()=>{
   if(!name) return;
   state.cast.push({
     id:uid(), name, actor, mic:nextMic(),
-    color: COLOR_PALETTE[state.cast.length % COLOR_PALETTE.length], edit:false
+    color: COLOR_PALETTE[state.cast.length % COLOR_PALETTE.length].hex, edit:false
   });
   $('#newCharName').value=''; $('#newActorName').value='';
   renderCastList();
@@ -319,6 +464,7 @@ function renderCastList(){
   const micCount = {};
   state.cast.forEach(c=>{ micCount[c.mic] = (micCount[c.mic]||0)+1; });
   const closed = $('#castPanel').classList.contains('closed');
+  if(closed) return; // 閉じた状態は表示しない（強制3文字切り出しは行わない）
 
   state.cast.forEach(c=>{
     const row = document.createElement('div');
@@ -326,64 +472,61 @@ function renderCastList(){
     row.style.borderLeft = `6px solid ${c.color}`;
 
     const nameSpan = document.createElement('span');
-    // ※強制的な3文字切り出しは行わない。閉じた状態はCSSのoverflow/ellipsisのみで隠す。
     nameSpan.textContent = c.name;
     nameSpan.title = c.name;
     row.appendChild(nameSpan);
 
-    if(!closed){
-      const actorInput = document.createElement('input');
-      actorInput.type='text'; actorInput.value = c.actor||''; actorInput.placeholder='役者名';
-      actorInput.disabled = !c.edit;
-      actorInput.addEventListener('input', e=>{ c.actor = e.target.value; saveState(); });
-      row.appendChild(actorInput);
+    const actorInput = document.createElement('input');
+    actorInput.type='text'; actorInput.value = c.actor||''; actorInput.placeholder='役者名';
+    actorInput.disabled = !c.edit;
+    actorInput.addEventListener('input', e=>{ c.actor = e.target.value; saveState(); });
+    row.appendChild(actorInput);
 
-      const micBtn = document.createElement('button');
-      micBtn.className='mic-btn' + (micCount[c.mic]>1 ? ' duplicate' : '');
-      micBtn.textContent = c.mic;
-      micBtn.addEventListener('click', ()=>{
-        const idx = MIC_CYCLE.indexOf(c.mic);
-        c.mic = MIC_CYCLE[(idx+1)%MIC_CYCLE.length];
-        renderCastList(); saveState();
-      });
-      row.appendChild(micBtn);
+    const micBtn = document.createElement('button');
+    micBtn.className='mic-btn' + (micCount[c.mic]>1 ? ' duplicate' : '');
+    micBtn.textContent = c.mic;
+    micBtn.addEventListener('click', ()=>{
+      const idx = MIC_CYCLE.indexOf(c.mic);
+      c.mic = MIC_CYCLE[(idx+1)%MIC_CYCLE.length];
+      renderCastList(); saveState();
+    });
+    row.appendChild(micBtn);
 
-      const editBtn = document.createElement('button');
-      editBtn.className='del-btn editable-only';
-      editBtn.textContent = c.edit ? '確定':'変更';
-      editBtn.addEventListener('click', ()=>{
-        c.edit = !c.edit;
-        renderCastList(); saveState();
-      });
-      row.appendChild(editBtn);
+    const editBtn = document.createElement('button');
+    editBtn.className='del-btn editable-only';
+    editBtn.textContent = c.edit ? '確定':'変更';
+    editBtn.addEventListener('click', ()=>{
+      c.edit = !c.edit;
+      renderCastList(); saveState();
+    });
+    row.appendChild(editBtn);
 
-      if(c.edit){
-        const nameInput = document.createElement('input');
-        nameInput.type='text'; nameInput.value=c.name; nameInput.style.width='70px';
-        nameInput.addEventListener('input', e=>{ c.name = e.target.value; saveState(); });
-        row.insertBefore(nameInput, row.firstChild);
-        row.removeChild(nameSpan);
-      }
-
-      const colorBtn = document.createElement('button');
-      colorBtn.className='color-swatch-btn';
-      colorBtn.style.background = c.color;
-      colorBtn.addEventListener('click', ()=>{
-        const idx = COLOR_PALETTE.indexOf(c.color);
-        c.color = COLOR_PALETTE[(idx+1)%COLOR_PALETTE.length];
-        renderCastList(); saveState();
-      });
-      row.appendChild(colorBtn);
-
-      const delBtn = document.createElement('button');
-      delBtn.className='del-btn editable-only';
-      delBtn.textContent='✕';
-      delBtn.addEventListener('click', ()=>{
-        state.cast = state.cast.filter(x=>x.id!==c.id);
-        renderCastList(); saveState();
-      });
-      row.appendChild(delBtn);
+    if(c.edit){
+      const nameInput = document.createElement('input');
+      nameInput.type='text'; nameInput.value=c.name; nameInput.style.width='70px';
+      nameInput.addEventListener('input', e=>{ c.name = e.target.value; saveState(); });
+      row.insertBefore(nameInput, row.firstChild);
+      row.removeChild(nameSpan);
     }
+
+    const colorBtn = document.createElement('button');
+    colorBtn.className='color-swatch-btn';
+    colorBtn.style.background = c.color;
+    colorBtn.addEventListener('click', ()=>{
+      const idx = COLOR_PALETTE.findIndex(p=>p.hex===c.color);
+      c.color = COLOR_PALETTE[(idx+1)%COLOR_PALETTE.length].hex;
+      renderCastList(); saveState();
+    });
+    row.appendChild(colorBtn);
+
+    const delBtn = document.createElement('button');
+    delBtn.className='del-btn editable-only';
+    delBtn.textContent='✕';
+    delBtn.addEventListener('click', ()=>{
+      state.cast = state.cast.filter(x=>x.id!==c.id);
+      renderCastList(); saveState();
+    });
+    row.appendChild(delBtn);
 
     wrap.appendChild(row);
   });
@@ -446,7 +589,6 @@ $('#autoMatchBtn').addEventListener('click', ()=>{
   const targets = lines.length ? Array.from(lines) : [scriptEditor];
   let matchedCount = 0;
   targets.forEach(line=>{
-    // 前回のドットをクリア
     line.querySelectorAll('.speaker-dot').forEach(d=>d.remove());
     const text = (line.textContent || '').replace(/\u200b/g,'');
     const m = text.match(/^\s*([^\s:：]{1,30})[：:]/);
@@ -504,7 +646,7 @@ $('#speakRowBtn').addEventListener('click', ()=>{
   for(let i=startIndex;i<lines.length;i++){
     const line = lines[i];
     if(line.classList && line.classList.contains('tokaki')) continue;
-    if(lines.length>1 && !line.dataset.mic) continue; // マイク未割当行は読み上げ漏れチェックのためスキップ
+    if(lines.length>1 && !line.dataset.mic) continue;
     const text = (line.textContent||'').replace(/^[^：:]*[：:]/,'').trim();
     if(text) queue.push(text);
   }
@@ -563,6 +705,9 @@ $('#scriptAudioInput').addEventListener('change', e=>{
   const file = e.target.files[0];
   if(!file) return;
   scriptAudioPlayer.src = URL.createObjectURL(file);
+  state.audioSourceCount = (state.audioSourceCount||0) + 1;
+  state.currentAudioLabel = circledNum(state.audioSourceCount);
+  saveState();
 });
 $('#scriptAudioPlayPause').addEventListener('click', ()=>{
   if(scriptAudioPlayer.paused){ scriptAudioPlayer.play(); $('#scriptAudioPlayPause').textContent='⏸'; }
@@ -580,20 +725,23 @@ $('#scriptAudioSeek').addEventListener('input', e=>{
 });
 
 /* ============================================================
-   配役色トグル（ステージ用8色）
+   配役色トグル（ステージ用8色・色相順・中央寄せ）
    ============================================================ */
 function renderColorToggles(){
   const wrap = $('#stageColorToggles');
   wrap.innerHTML='';
-  COLOR_PALETTE.forEach(col=>{
+  if(state.bgColorMode!=='on'){ wrap.classList.add('hidden'); return; }
+  wrap.classList.remove('hidden');
+  COLOR_PALETTE.forEach((col,idx)=>{
     const btn = document.createElement('button');
-    btn.className='color-toggle-btn' + (state.activeColor===col ? ' active':'');
-    btn.style.background = col;
-    btn.style.color = col;
+    btn.className='color-toggle-btn' + (state.activeColorIndex===idx ? ' active':'');
+    btn.style.background = col.hex;
+    btn.style.color = col.hex;
+    btn.title = col.name;
     btn.addEventListener('click', ()=>{
-      state.activeColor = (state.activeColor===col) ? null : col;
+      state.activeColorIndex = (state.activeColorIndex===idx) ? null : idx;
       renderColorToggles();
-      applyColorFilter();
+      updateStagePreviewMedia();
       saveState();
     });
     wrap.appendChild(btn);
@@ -601,45 +749,243 @@ function renderColorToggles(){
 }
 function applyColorFilter(){
   const filter = $('#stageColorFilter');
-  if(state.bgColorMode==='off' || !state.activeColor){
+  if(state.bgColorMode!=='on' || state.activeColorIndex==null){
     filter.style.opacity=0;
     return;
   }
-  filter.style.backgroundColor = state.activeColor;
-  filter.style.opacity = .55;
+  filter.style.backgroundColor = currentColorHex();
+  filter.style.opacity = .5;
 }
 
 /* ============================================================
-   ストロボ
+   ストロボ / Effect / フェード（背景色ありモード時の演出制御）
    ============================================================ */
-let strobeActive=false;
+function currentStrobeKey(){
+  if(state.bgColorMode!=='on') return 'none';
+  if(state.effectType==='none') return state.strobeOn ? 'static' : 'none';
+  return state.strobeMode || 'none';
+}
+function isEffectActive(){
+  if(state.bgColorMode!=='on') return false;
+  if(state.effectType==='none') return false;
+  if(state.effectType==='existing') return !!state.effectOn;
+  if(state.effectType==='original') return state.effectSubMode!=='none';
+  return false;
+}
+function updateStrobeUI(){
+  const btn = $('#strobeToggleBtn');
+  if(state.bgColorMode!=='on'){ btn.classList.add('hidden'); return; }
+  btn.classList.remove('hidden');
+  if(state.effectType==='none'){
+    btn.textContent = 'ストロボ';
+    btn.classList.toggle('active-state', !!state.strobeOn);
+  }else{
+    btn.textContent = STROBE_BTN_LABEL[state.strobeMode] || 'ストロボ✖️';
+    btn.classList.toggle('active-state', !!state.strobeMode && state.strobeMode!=='none');
+  }
+}
 $('#strobeToggleBtn').addEventListener('click', ()=>{
-  if(state.strobeType==='nashi'){ alert('初期設定でストロボが「なし」に設定されています。'); return; }
-  strobeActive = !strobeActive;
-  $('#stagePreview').classList.toggle('strobing', strobeActive);
+  if(state.bgColorMode!=='on') return;
+  if(state.effectType==='none'){
+    state.strobeOn = !state.strobeOn;
+  }else{
+    const cycle = state.effectType==='existing' ? EXISTING_STROBE_CYCLE : ORIGINAL_STROBE_CYCLE;
+    const idx = cycle.indexOf(state.strobeMode);
+    state.strobeMode = cycle[(idx+1+cycle.length)%cycle.length];
+  }
+  updateStrobeUI();
+  updateStagePreviewMedia();
+  saveState();
 });
 
+function updateEffectUI(){
+  const btn = $('#effectToggleBtn');
+  if(state.bgColorMode!=='on' || !state.effectType || state.effectType==='none'){
+    btn.classList.add('hidden');
+    $('#customEffectAddRow').classList.add('hidden');
+    return;
+  }
+  btn.classList.remove('hidden');
+  if(state.effectType==='existing'){
+    btn.textContent='Effect';
+    btn.classList.toggle('active-state', !!state.effectOn);
+  }else if(state.effectType==='original'){
+    btn.textContent = EFFECT_SUBMODE_LABEL[state.effectSubMode] || 'Effectなし';
+    btn.classList.toggle('active-state', state.effectSubMode!=='none');
+  }
+  const showCustomRow = state.effectType==='original' && state.effectSubMode==='original';
+  $('#customEffectAddRow').classList.toggle('hidden', !showCustomRow);
+  if(showCustomRow) prefillCfxDefaults();
+}
+$('#effectToggleBtn').addEventListener('click', ()=>{
+  if(state.effectType==='existing'){
+    state.effectOn = !state.effectOn;
+  }else if(state.effectType==='original'){
+    const cyc = ['none','existing','original'];
+    const idx = cyc.indexOf(state.effectSubMode);
+    state.effectSubMode = cyc[(idx+1)%cyc.length];
+  }
+  updateEffectUI();
+  updateStagePreviewMedia();
+  saveState();
+});
+
+function updateFadeUI(){
+  $('#fadeModeBtn').textContent = FADE_LABEL[state.fadeMode] || 'フェードなし';
+  $('#fadeModeBtn').classList.toggle('active-state', state.fadeMode!=='none');
+}
+$('#fadeModeBtn').addEventListener('click', ()=>{
+  const idx = FADE_CYCLE.indexOf(state.fadeMode);
+  state.fadeMode = FADE_CYCLE[(idx+1)%FADE_CYCLE.length];
+  updateFadeUI();
+  saveState();
+});
+
+/* ---------- 独自Effect 記録 ---------- */
+function prefillCfxDefaults(){
+  let nextNo = 1;
+  while(state.customEffects.some(e=>e.no===nextNo)) nextNo++;
+  if(!$('#cfxNo').dataset.touched) $('#cfxNo').value = nextNo;
+  if(!$('#cfxStep').value) $('#cfxStep').value = 1;
+  if(!$('#cfxSec').value) $('#cfxSec').value = 0.1;
+}
+$('#cfxSaveBtn').addEventListener('click', ()=>{
+  const no = parseInt($('#cfxNo').value,10) || 1;
+  const step = parseInt($('#cfxStep').value,10) || 1;
+  const sec = parseFloat($('#cfxSec').value) || 0.1;
+  const colorName = currentColorName() || '-';
+  const strobeLabel = STROBE_LABEL_CUE[state.strobeMode] || 'なし';
+  state.customEffects.push({id:uid(), no, step, sec, colorName, strobeLabel});
+  let nextNo=1; while(state.customEffects.some(e=>e.no===nextNo)) nextNo++;
+  $('#cfxNo').value = nextNo;
+  $('#cfxStep').value = step+1;
+  renderCustomFxTable();
+  saveState();
+});
+function renderCustomFxTable(){
+  const body = $('#customFxTableBody');
+  body.innerHTML='';
+  state.customEffects.forEach((e,idx)=>{
+    const tr=document.createElement('tr');
+    ['no','step','sec','colorName','strobeLabel'].forEach(f=>{
+      const td=document.createElement('td');
+      td.textContent = e[f];
+      tr.appendChild(td);
+    });
+    const delTd=document.createElement('td');
+    const delBtn=document.createElement('button');
+    delBtn.textContent='✕'; delBtn.className='del-btn';
+    delBtn.addEventListener('click', ()=>{ state.customEffects.splice(idx,1); renderCustomFxTable(); saveState(); });
+    delTd.appendChild(delBtn);
+    tr.appendChild(delTd);
+    body.appendChild(tr);
+  });
+}
+
 /* ============================================================
-   ステージ状態（暗転/全照/50%）
+   ステージ状態（暗転/全照/50%）＆ 背景メディア表示（画像 or 動画）
    ============================================================ */
 $all('.stage-btn').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     state.stageState = btn.dataset.stage;
-    applyStageState();
+    updateStagePreviewMedia();
     saveState();
   });
 });
-function applyStageState(){
-  const map = {anten:'img/anten.jpg', zensyou:'img/zensyou.jpg', hansyou:'img/hansyou.jpg'};
-  const path = map[state.stageState];
-  const img = $('#stageBgImg');
-  img.src = resolveAsset(path);
-  img.onerror = ()=>{
-    img.style.display='none';
-    $('#stagePreview').style.background = state.stageState==='anten' ? '#000' : state.stageState==='hansyou' ? '#555' : '#ddd';
-  };
-  img.onload = ()=>{ img.style.display='block'; };
+
+function applyStrobeClasses(){
+  const preview = $('#stagePreview');
+  const k = currentStrobeKey();
+  preview.classList.toggle('strobing', k==='chikachika');
+  preview.classList.toggle('strobe-kurukuru', k==='kurukuru');
 }
+
+function setMediaWithFade(el, newSrc, afterSet){
+  const dur = state.fadeDurationSec || 1;
+  if(state.fadeMode==='none'){
+    el.style.transition='none';
+    el.src = newSrc;
+    el.style.opacity=1;
+    if(afterSet) afterSet();
+    return;
+  }
+  el.style.transition = `opacity ${dur}s ease`;
+  if(state.fadeMode==='out'){
+    el.style.opacity=0;
+    setTimeout(()=>{
+      el.src = newSrc;
+      if(afterSet) afterSet();
+      requestAnimationFrame(()=>{ el.style.opacity=1; });
+    }, dur*1000);
+  } else { // 'in'
+    el.style.opacity=0;
+    el.src = newSrc;
+    if(afterSet) afterSet();
+    requestAnimationFrame(()=>{ requestAnimationFrame(()=>{ el.style.opacity=1; }); });
+  }
+}
+
+function updateStagePreviewMedia(){
+  const imgEl = $('#stageBgImg');
+  const videoEl = $('#stageBgVideo');
+
+  if(state.stageVideoOverride){
+    videoEl.classList.remove('hidden');
+    imgEl.classList.add('hidden');
+    if(videoEl.src !== state.stageVideoOverride){
+      videoEl.src = state.stageVideoOverride;
+      videoEl.load && videoEl.load();
+      videoEl.play && videoEl.play().catch(()=>{});
+    }
+    applyColorFilter();
+    applyStrobeClasses();
+    return;
+  }
+
+  if(state.bgColorMode==='on' && currentColorName()){
+    const useVideo = isEffectActive();
+    const folder = useVideo ? 'mov' : 'img';
+    const stageFolder = STAGE_FOLDER[state.stageState];
+    const strobeFolder = STROBE_FOLDER[currentStrobeKey()];
+    const colorName = currentColorName();
+    const ext = useVideo ? 'mov' : 'png';
+    const path = `${folder}/${stageFolder}/${strobeFolder}/${colorName}.${ext}`;
+    const resolved = resolveAsset(path);
+
+    if(useVideo){
+      videoEl.onerror = ()=>{ videoEl.classList.add('hidden'); };
+      setMediaWithFade(videoEl, resolved, ()=>{
+        videoEl.classList.remove('hidden');
+        imgEl.classList.add('hidden');
+        videoEl.load && videoEl.load();
+        videoEl.play && videoEl.play().catch(()=>{});
+      });
+    }else{
+      imgEl.onerror = ()=>{ imgEl.classList.add('hidden'); };
+      imgEl.onload = ()=>{ imgEl.classList.remove('hidden'); };
+      setMediaWithFade(imgEl, resolved, ()=>{ videoEl.classList.add('hidden'); });
+    }
+  }else{
+    const map = {anten:'img/anten.jpg', zensyou:'img/zensyou.jpg', hansyou:'img/hansyou.jpg'};
+    const path = map[state.stageState];
+    const resolved = resolveAsset(path);
+    imgEl.onerror = ()=>{
+      imgEl.classList.add('hidden');
+      $('#stagePreview').style.background = state.stageState==='anten' ? '#000' : state.stageState==='hansyou' ? '#555' : '#ddd';
+    };
+    imgEl.onload = ()=>{ imgEl.classList.remove('hidden'); };
+    setMediaWithFade(imgEl, resolved, ()=>{ videoEl.classList.add('hidden'); });
+  }
+  applyColorFilter();
+  applyStrobeClasses();
+}
+
+$('#stageVideoInput').addEventListener('change', e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  state.stageVideoOverride = URL.createObjectURL(file);
+  updateStagePreviewMedia();
+});
 
 /* ============================================================
    ステージアイテム（ドラッグ&ドロップ配置）
@@ -703,23 +1049,45 @@ video.addEventListener('timeupdate', ()=>{
   $('#currentVideoTime').textContent = video.currentTime.toFixed(1)+'秒';
 });
 
+function currentTimeSource(){
+  if(!video.paused && !video.ended) return video.currentTime;
+  if(!scriptAudioPlayer.paused && !scriptAudioPlayer.ended) return scriptAudioPlayer.currentTime;
+  return video.currentTime || scriptAudioPlayer.currentTime || 0;
+}
+function currentLineText(){
+  const sel = window.getSelection();
+  if(sel && sel.toString().trim().length>0) return sel.toString().trim();
+  return '';
+}
 function recordCue(sec){
+  const strobeKey = currentStrobeKey();
+  const strobeLabel = (state.effectType==='none' || !state.effectType)
+    ? (strobeKey==='static' ? '◯' : 'なし')
+    : (STROBE_LABEL_CUE[strobeKey] || 'なし');
+  const effectMark = (state.effectType==='original' && state.effectSubMode!=='none') ? '◯' : '';
+  const stageLabelMap = {anten:'暗転', zensyou:'全照', hansyou:'半照'};
   const cue = {
-    sec: (sec||0).toFixed ? sec.toFixed(1) : String(sec),
-    line:'', audio:'', stage: state.stageState,
-    bg: state.activeColor || '', chs: $('#strobeChs').value,
-    strobe: strobeActive ? 'ON':'OFF', fade: $('#fadeSeconds').value
+    sec: (typeof sec==='number') ? sec.toFixed(1) : String(sec||0),
+    line: currentLineText(),
+    audio: state.currentAudioLabel || '-',
+    stage: stageLabelMap[state.stageState] || state.stageState,
+    bg: currentColorName() || '',
+    effect: effectMark,
+    strobe: strobeLabel,
+    fade: FADE_LABEL[state.fadeMode] || 'フェードなし'
   };
   state.cues.push(cue);
   state.cues.sort((a,b)=>parseFloat(a.sec)-parseFloat(b.sec));
   renderCueTable();
   saveState();
 }
-$('#captureCueBtn').addEventListener('click', ()=> recordCue(video.currentTime));
+$('#videoCueBtn').addEventListener('click', ()=> recordCue(video.currentTime));
 $('#scriptCueBtn').addEventListener('click', ()=> recordCue(scriptAudioPlayer.currentTime || 0));
-$('#cueTabAddBtn').addEventListener('click', ()=> recordCue(0));
+$('#cueTabAddBtn').addEventListener('click', ()=> recordCue(currentTimeSource()));
+$('#customfxCueBtn').addEventListener('click', ()=> recordCue(currentTimeSource()));
 
 const CUE_TBODY_IDS = ['cueTableBody_script','cueTableBody_video','cueTableBody_cue'];
+const CUE_FIELDS = ['sec','line','audio','stage','bg','effect','strobe','fade'];
 function renderCueTable(){
   CUE_TBODY_IDS.forEach(id=>{
     const body = document.getElementById(id);
@@ -728,8 +1096,7 @@ function renderCueTable(){
     state.cues.forEach((c,idx)=>{
       const tr = document.createElement('tr');
       tr.className='cue-row';
-      const fields = ['sec','line','audio','stage','bg','chs','strobe','fade'];
-      fields.forEach(f=>{
+      CUE_FIELDS.forEach(f=>{
         const td = document.createElement('td');
         td.textContent = c[f];
         td.contentEditable = 'true';
@@ -752,8 +1119,8 @@ function renderCueTable(){
    CSV出力（UTF-8 BOM付き）
    ============================================================ */
 $('#exportCsvBtn').addEventListener('click', ()=>{
-  const headers = ['秒数','セリフ','音源','舞台','背景','chs','ストロボ','フェード'];
-  const rows = state.cues.map(c=>[c.sec,c.line,c.audio,c.stage,c.bg,c.chs,c.strobe,c.fade]);
+  const headers = ['秒数','セリフ','音源','舞台','背景','Effect','ストロボ','フェード'];
+  const rows = state.cues.map(c=>[c.sec,c.line,c.audio,c.stage,c.bg,c.effect,c.strobe,c.fade]);
   let csv = headers.join(',') + '\n';
   rows.forEach(r=>{
     csv += r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',') + '\n';
@@ -801,30 +1168,11 @@ $('#printBtn').addEventListener('click', ()=>{
   printArea.innerHTML = `<h1>台本・キューシート</h1>` + scriptEditor.innerHTML +
     `<h2>キューシート一覧</h2>` +
     `<table border="1" style="width:100%;border-collapse:collapse;">
-      <tr><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>chs</th><th>ストロボ</th><th>フェード</th></tr>
-      ${state.cues.map(c=>`<tr><td>${c.sec}</td><td>${c.line}</td><td>${c.audio}</td><td>${c.stage}</td><td>${c.bg}</td><td>${c.chs}</td><td>${c.strobe}</td><td>${c.fade}</td></tr>`).join('')}
+      <tr><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th></tr>
+      ${state.cues.map(c=>`<tr><td>${c.sec}</td><td>${c.line}</td><td>${c.audio}</td><td>${c.stage}</td><td>${c.bg}</td><td>${c.effect}</td><td>${c.strobe}</td><td>${c.fade}</td></tr>`).join('')}
     </table>`;
   window.print();
 });
-
-/* ============================================================
-   QRコード生成
-   ============================================================ */
-$('#qrBtn').addEventListener('click', ()=>{
-  const holder = $('#qrCanvasHolder');
-  holder.innerHTML='';
-  const dataStr = JSON.stringify({cast:state.cast.map(c=>c.name), cues:state.cues.length});
-  if(window.QRCode){
-    QRCode.toCanvas(document.createElement('canvas'), dataStr, {width:220}, (err, canvas)=>{
-      if(err){ holder.textContent='QR生成に失敗しました'; return; }
-      holder.appendChild(canvas);
-    });
-  }else{
-    holder.textContent='QRライブラリの読み込みに失敗しました。';
-  }
-  $('#qrModal').classList.remove('hidden');
-});
-$('#qrCloseBtn').addEventListener('click', ()=>{ $('#qrModal').classList.add('hidden'); });
 
 /* ============================================================
    自動保存
@@ -837,6 +1185,8 @@ window.addEventListener('beforeunload', saveState);
    ============================================================ */
 document.addEventListener('DOMContentLoaded', ()=>{
   loadState();
+  populateAdminColorSelect();
+  updateAdminAssetPathPreview();
   applyModalAssets();
   initModalLogic();
   if(state.initDone){
