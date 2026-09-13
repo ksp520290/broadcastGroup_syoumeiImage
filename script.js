@@ -16,12 +16,37 @@ const COLOR_PALETTE = [
   {name:'白',     hex:'#FFFFFF'}
 ];
 const MIC_CYCLE = ['ワイヤレス1','ワイヤレス2','ワイヤレス3','ワイヤレス4','有線1','有線2','有線3','有線4'];
-const LOGIN_PASSWORD = 'admin1234'; // デモ用固定パスワード
+// 要件⑤：自動割り当ては「ワイヤレス」内のみを循環させる
+const AUTO_MIC_CYCLE = ['ワイヤレス1','ワイヤレス2','ワイヤレス3','ワイヤレス4'];
+// 要件④：マイクがかぶった際は警告ではなく、マイクごとに固定した強調色で色分けする
+const MIC_COLORS = {
+  'ワイヤレス1':'#F4A462','ワイヤレス2':'#FFD166','ワイヤレス3':'#95C68A','ワイヤレス4':'#68A1A4',
+  '有線1':'#5AA4DE','有線2':'#8974BA','有線3':'#C47297','有線4':'#E26D6C'
+};
+// 要件⑦：読み上げ音声の種類（男性低音〜女性高音）
+const VOICE_CYCLE = ['男1','男2','男3','女1','女2','女3'];
+const VOICE_PARAMS = {
+  '男1':{pitch:0.55, rate:0.95, gender:'male'},
+  '男2':{pitch:0.8,  rate:1.0,  gender:'male'},
+  '男3':{pitch:1.05, rate:1.05, gender:'male'},
+  '女1':{pitch:1.0,  rate:0.95, gender:'female'},
+  '女2':{pitch:1.3,  rate:1.0,  gender:'female'},
+  '女3':{pitch:1.6,  rate:1.05, gender:'female'}
+};
+function textColorFor(hex){
+  const h = hex.replace('#','');
+  const r=parseInt(h.substring(0,2),16), g=parseInt(h.substring(2,4),16), b=parseInt(h.substring(4,6),16);
+  const yiq = (r*299+g*587+b*114)/1000;
+  return yiq>=140 ? '#222' : '#fff';
+}
+
+// 管理者ログイン：削除・一覧非表示の固定マスターアカウント（要件⑬）
+const ROOT_ADMIN = {id:'syoumei', pass:'最高！'};
 
 const STAGE_FOLDER = {anten:'暗転', zensyou:'全照', hansyou:'半照'};
-const STROBE_FOLDER = {none:'ストロボ✖', static:'ストロボ静止', chikachika:'ストロボちかちか', kurukuru:'ストロボくるくる'};
-const STROBE_LABEL_CUE = {static:'◯', chikachika:'チカチカ', kurukuru:'Effect1', none:'なし'};
-const STROBE_BTN_LABEL = {static:'ストロボ静止', chikachika:'ストロボチカチカ', kurukuru:'ストロボクルクル', none:'ストロボ✖️'};
+const STROBE_FOLDER = {none:'ストロボ✖', static:'ストロボ静止', chikachika:'ストロボ独立', kurukuru:'ストロボくるくる'};
+const STROBE_LABEL_CUE = {static:'◯', chikachika:'独立', kurukuru:'Effect1', none:'なし'};
+const STROBE_BTN_LABEL = {static:'ストロボ静止', chikachika:'ストロボ独立', kurukuru:'ストロボクルクル', none:'ストロボ✖️'};
 const EXISTING_STROBE_CYCLE = ['static','chikachika','kurukuru','none'];
 const ORIGINAL_STROBE_CYCLE = ['none','static','chikachika','kurukuru'];
 const EFFECT_SUBMODE_LABEL = {none:'Effectなし', existing:'既存Effect', original:'独自Effect'};
@@ -37,6 +62,9 @@ let state = {
   darkMode:false,
   locked:false,
   loggedIn:false,
+  admins:[],                // {id,pass}（rootの syoumei は含まない）
+  loggedInAdminId:null,     // ログイン中のID（'syoumei' または admins内のid）
+  _adminsSeeded:false,      // data.json からの初回読込済みフラグ
   cast:[],                 // {id,name,actor,mic,color,edit}
   scriptHTML:'',
   gdocUrl:'',
@@ -194,6 +222,44 @@ function prefillModalSelections(){
 }
 
 /* ============================================================
+   設定＞Googleログイン（要件②：学校でGoogle Cloud Consoleが使えないため、
+   OAuthクライアントIDによる自動認可の代わりに、外部（OAuth 2.0 Playground等）で
+   取得したアクセストークンをご自身で貼り付ける方式に変更）
+   ============================================================ */
+let googleAccessToken = null; // セキュリティのためlocalStorageには保存しない（セッション限り）
+
+function updateGoogleLoginUI(){
+  const loggedIn = !!googleAccessToken;
+  $('#googleLoginInputArea').classList.toggle('hidden', loggedIn);
+  $('#googleLoginStatusArea').classList.toggle('hidden', !loggedIn);
+  $('#googleLoginStatus').textContent = loggedIn
+    ? 'Googleアカウント：ログイン中（貼り付けられたアクセストークンを使用中）'
+    : 'Googleアカウント：未ログイン';
+}
+function initGoogleLoginUI(){
+  // トークン貼り付け方式のため、特別な初期化処理は不要。
+  updateGoogleLoginUI();
+}
+$('#openGoogleLoginBtn').addEventListener('click', ()=>{
+  $('#settingsMenu').classList.add('hidden');
+  $('#googleTokenInput').value='';
+  updateGoogleLoginUI();
+  $('#googleLoginModal').classList.remove('hidden');
+});
+$('#googleLoginCloseBtn').addEventListener('click', ()=>{ $('#googleLoginModal').classList.add('hidden'); });
+$('#googleTokenApplyBtn').addEventListener('click', ()=>{
+  const token = $('#googleTokenInput').value.trim();
+  if(!token){ alert('アクセストークンを入力してください。'); return; }
+  // 受け取った情報を反映し、ログイン済み表示画面へ遷移する
+  googleAccessToken = token;
+  updateGoogleLoginUI();
+});
+$('#googleLogoutBtn').addEventListener('click', ()=>{
+  googleAccessToken = null;
+  updateGoogleLoginUI();
+});
+
+/* ============================================================
    ログイン / 設定 / 管理者画面 / フェード秒数
    ============================================================ */
 function updateLoginUI(){
@@ -203,18 +269,25 @@ function updateLoginUI(){
   if(!state.loggedIn) $('#settingsMenu').classList.add('hidden');
 }
 $('#loginBtn').addEventListener('click', ()=>{
+  $('#loginIdInput').value='';
   $('#loginPasswordInput').value='';
   $('#loginModal').classList.remove('hidden');
 });
 $('#loginCancelBtn').addEventListener('click', ()=>{ $('#loginModal').classList.add('hidden'); });
 $('#loginSubmitBtn').addEventListener('click', ()=>{
-  if($('#loginPasswordInput').value === LOGIN_PASSWORD){
+  const id = $('#loginIdInput').value.trim();
+  const pass = $('#loginPasswordInput').value;
+  const matched = (id===ROOT_ADMIN.id && pass===ROOT_ADMIN.pass)
+    ? ROOT_ADMIN
+    : state.admins.find(a=>a.id===id && a.pass===pass);
+  if(matched){
     state.loggedIn = true;
+    state.loggedInAdminId = matched.id;
     updateLoginUI();
     $('#loginModal').classList.add('hidden');
     saveState();
   }else{
-    alert('パスワードが違います。');
+    alert('IDまたはパスワードが違います。');
   }
 });
 $('#settingsMenuBtn').addEventListener('click', ()=>{
@@ -222,6 +295,7 @@ $('#settingsMenuBtn').addEventListener('click', ()=>{
 });
 $('#logoutBtn').addEventListener('click', ()=>{
   state.loggedIn = false;
+  state.loggedInAdminId = null;
   updateLoginUI();
   saveState();
 });
@@ -234,6 +308,138 @@ $('#openAdminBtn').addEventListener('click', ()=>{
   $('#adminModal').classList.remove('hidden');
 });
 $('#adminCloseBtn').addEventListener('click', ()=>{ $('#adminModal').classList.add('hidden'); });
+
+/* ---------- 管理者一覧画面（要件⑬） ---------- */
+$('#openAdminUsersBtn').addEventListener('click', ()=>{
+  $('#settingsMenu').classList.add('hidden');
+  renderAdminUsersTable();
+  $('#adminUsersModal').classList.remove('hidden');
+});
+$('#adminUsersCloseBtn').addEventListener('click', async ()=>{
+  await persistAdminsToDataJson();
+  $('#adminUsersModal').classList.add('hidden');
+});
+$('#newAdminAddBtn').addEventListener('click', ()=>{
+  const id = $('#newAdminIdInput').value.trim();
+  const pass = $('#newAdminPassInput').value;
+  if(!id || !pass){ alert('IDとパスワードを入力してください。'); return; }
+  if(id===ROOT_ADMIN.id || state.admins.some(a=>a.id===id)){
+    alert('そのIDは既に使用されています。'); return;
+  }
+  state.admins.push({id, pass});
+  $('#newAdminIdInput').value=''; $('#newAdminPassInput').value='';
+  renderAdminUsersTable();
+  saveState();
+});
+function renderAdminUsersTable(){
+  const body = $('#adminUsersTableBody');
+  body.innerHTML='';
+  const visible = state.admins.filter(a=>a.id!==ROOT_ADMIN.id);
+  // 自分の行を最上部に表示
+  visible.sort((a,b)=>{
+    if(a.id===state.loggedInAdminId) return -1;
+    if(b.id===state.loggedInAdminId) return 1;
+    return 0;
+  });
+  visible.forEach(a=>{
+    const isSelf = a.id===state.loggedInAdminId;
+    const tr = document.createElement('tr');
+    if(isSelf) tr.className='admin-user-self-row';
+
+    const idTd = document.createElement('td');
+    if(isSelf){
+      const idInput = document.createElement('input');
+      idInput.type='text'; idInput.value=a.id; idInput.className='admin-user-id-input';
+      idInput.addEventListener('change', ()=>{
+        const newId = idInput.value.trim();
+        if(!newId){ idInput.value=a.id; return; }
+        if(newId!==a.id && (newId===ROOT_ADMIN.id || state.admins.some(x=>x.id===newId))){
+          alert('そのIDは既に使用されています。'); idInput.value=a.id; return;
+        }
+        if(state.loggedInAdminId===a.id) state.loggedInAdminId = newId;
+        a.id = newId;
+        saveState();
+        renderAdminUsersTable();
+      });
+      idTd.appendChild(idInput);
+    }else{
+      idTd.textContent = a.id;
+    }
+    tr.appendChild(idTd);
+
+    const passTd = document.createElement('td');
+    if(isSelf){
+      const passInput = document.createElement('input');
+      passInput.type='text'; passInput.value=a.pass; passInput.className='admin-user-pass-input';
+      passInput.addEventListener('change', ()=>{ a.pass = passInput.value; saveState(); });
+      passTd.appendChild(passInput);
+    }else{
+      passTd.textContent = '••••••';
+    }
+    tr.appendChild(passTd);
+
+    const delTd = document.createElement('td');
+    const delBtn = document.createElement('button');
+    delBtn.textContent='削除'; delBtn.className='del-btn';
+    delBtn.addEventListener('click', ()=>{
+      if(!confirm(`ID「${a.id}」を削除しますか？`)) return;
+      state.admins = state.admins.filter(x=>x.id!==a.id);
+      if(state.loggedInAdminId===a.id){
+        state.loggedIn=false; state.loggedInAdminId=null; updateLoginUI();
+      }
+      renderAdminUsersTable();
+      saveState();
+    });
+    delTd.appendChild(delBtn);
+    tr.appendChild(delTd);
+
+    body.appendChild(tr);
+  });
+}
+
+/* ---------- data.json への保存/読込（要件⑬） ---------- */
+let adminDataFileHandle = null;
+async function loadAdminsFromDataJson(){
+  try{
+    const res = await fetch('data.json', {cache:'no-store'});
+    if(res.ok){
+      const json = await res.json();
+      if(Array.isArray(json.admins) && !state._adminsSeeded){
+        state.admins = json.admins.filter(a=>a && a.id && a.pass && a.id!==ROOT_ADMIN.id);
+        state._adminsSeeded = true;
+        saveState();
+      }
+    }
+  }catch(e){
+    // data.json が存在しない、もしくは file:// 直開きでfetch不可な環境。localStorageの内容をそのまま使用する。
+  }
+}
+async function persistAdminsToDataJson(){
+  const payload = JSON.stringify({admins: state.admins}, null, 2);
+  try{
+    if(!adminDataFileHandle && window.showSaveFilePicker){
+      adminDataFileHandle = await window.showSaveFilePicker({
+        suggestedName:'data.json',
+        types:[{description:'JSON', accept:{'application/json':['.json']}}]
+      });
+    }
+    if(adminDataFileHandle){
+      const writable = await adminDataFileHandle.createWritable();
+      await writable.write(payload);
+      await writable.close();
+      return;
+    }
+  }catch(e){
+    console.warn('data.jsonへの保存がキャンセルまたは失敗しました。ダウンロードに切り替えます。', e);
+    adminDataFileHandle = null;
+  }
+  // File System Access API 非対応ブラウザ向けフォールバック：ダウンロード
+  const blob = new Blob([payload], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'data.json';
+  a.click();
+}
 
 $all('.admin-asset-row').forEach(row=>{
   const path = row.dataset.path;
@@ -334,6 +540,20 @@ function applyAllSettingsToUI(){
   updateFadeUI();
   updateStagePreviewMedia();
   setupGdocAutoSync();
+  updateCustomFxTabVisibility();
+  $('#stageVideoDirectBtn').classList.toggle('active-highlight', !!state.stageVideoOverride);
+}
+
+function updateCustomFxTabVisibility(){
+  const show = state.effectType==='original';
+  const tabBtn = $('#customfxTabBtn');
+  tabBtn.classList.toggle('hidden', !show);
+  if(!show && tabBtn.classList.contains('active')){
+    tabBtn.classList.remove('active');
+    $('#tab-customfx').classList.remove('active');
+    $('.tab-btn[data-tab="script"]').classList.add('active');
+    $('#tab-script').classList.add('active');
+  }
 }
 
 $('#darkModeToggle').addEventListener('click', ()=>{
@@ -401,27 +621,27 @@ $('#versionMemoAddBtn').addEventListener('click', ()=>{
   renderVersionMemos();
   saveState();
 });
+$('#versionMemoListToggleBtn').addEventListener('click', ()=>{
+  $('#versionMemoList').classList.toggle('hidden');
+});
 function renderVersionMemos(){
   const list = $('#versionMemoList');
   list.innerHTML='';
   state.versionMemos.slice(0,20).forEach(m=>{
     const li=document.createElement('li');
-    const span=document.createElement('span');
-    span.textContent = `${m.text}（${m.date}）`;
-    li.appendChild(span);
-    if(m.snapshot){
-      const restoreBtn = document.createElement('button');
-      restoreBtn.className='restore-btn';
-      restoreBtn.textContent='復元';
-      restoreBtn.addEventListener('click', ()=>{
-        if(confirm(`「${m.text}」の状態に復元しますか？現在の内容は上書きされます。`)){
-          Object.assign(state, m.snapshot);
-          applyAllSettingsToUI();
-          saveState();
-        }
-      });
-      li.appendChild(restoreBtn);
-    }
+    const titleBtn = document.createElement('button');
+    titleBtn.className='memo-title-btn';
+    titleBtn.textContent = m.text; // 要件⑦：一覧では時刻・日付は表示しない
+    titleBtn.addEventListener('click', ()=>{
+      if(!m.snapshot) return;
+      // 要件⑦：復元前の確認画面でどの時点の履歴かを表示する
+      if(confirm(`「${m.text}」（${m.date} 時点）の状態に復元しますか？現在の内容は上書きされます。`)){
+        Object.assign(state, m.snapshot);
+        applyAllSettingsToUI();
+        saveState();
+      }
+    });
+    li.appendChild(titleBtn);
     list.appendChild(li);
   });
   $('#versionMemoDisplay').textContent = state.versionMemos[0] ? state.versionMemos[0].text : '';
@@ -435,14 +655,13 @@ $('#castPanelToggle').addEventListener('click', ()=>{
   panel.classList.toggle('open');
   panel.classList.toggle('closed');
   $('#castPanelArrow').textContent = panel.classList.contains('open') ? '◀' : '▶';
+  document.body.classList.toggle('cast-open', panel.classList.contains('open'));
   renderCastList();
 });
 
 function nextMic(){
-  if(state.cast.length===0) return MIC_CYCLE[0];
-  const last = state.cast[state.cast.length-1].mic;
-  const idx = MIC_CYCLE.indexOf(last);
-  return MIC_CYCLE[(idx+1) % MIC_CYCLE.length];
+  // 要件⑤：自動割り当ては「ワイヤレス1→2→3→4→1…」とワイヤレス内だけを循環する
+  return AUTO_MIC_CYCLE[state.cast.length % AUTO_MIC_CYCLE.length];
 }
 
 $('#castAddBtn').addEventListener('click', ()=>{
@@ -450,7 +669,7 @@ $('#castAddBtn').addEventListener('click', ()=>{
   const actor = $('#newActorName').value.trim();
   if(!name) return;
   state.cast.push({
-    id:uid(), name, actor, mic:nextMic(),
+    id:uid(), name, actor, mic:nextMic(), voice:VOICE_CYCLE[0],
     color: COLOR_PALETTE[state.cast.length % COLOR_PALETTE.length].hex, edit:false
   });
   $('#newCharName').value=''; $('#newActorName').value='';
@@ -478,13 +697,18 @@ function renderCastList(){
 
     const actorInput = document.createElement('input');
     actorInput.type='text'; actorInput.value = c.actor||''; actorInput.placeholder='役者名';
+    actorInput.className='actor-input';
     actorInput.disabled = !c.edit;
     actorInput.addEventListener('input', e=>{ c.actor = e.target.value; saveState(); });
     row.appendChild(actorInput);
 
+    // 要件④：マイクがかぶった際は警告表示ではなく、マイクごとに固定した強調色で色分けする
+    const micColor = MIC_COLORS[c.mic] || '#ccc';
     const micBtn = document.createElement('button');
-    micBtn.className='mic-btn' + (micCount[c.mic]>1 ? ' duplicate' : '');
+    micBtn.className='mic-btn' + (micCount[c.mic]>1 ? ' mic-shared' : '');
     micBtn.textContent = c.mic;
+    micBtn.style.background = micColor;
+    micBtn.style.color = textColorFor(micColor);
     micBtn.addEventListener('click', ()=>{
       const idx = MIC_CYCLE.indexOf(c.mic);
       c.mic = MIC_CYCLE[(idx+1)%MIC_CYCLE.length];
@@ -500,6 +724,19 @@ function renderCastList(){
       renderCastList(); saveState();
     });
     row.appendChild(editBtn);
+
+    // 要件⑦：「変更」ボタンの右横に読み上げ音声切り替えボタンを追加
+    const voiceBtn = document.createElement('button');
+    voiceBtn.className='voice-btn editable-only';
+    if(!c.voice) c.voice = VOICE_CYCLE[0];
+    voiceBtn.textContent = 'voice:'+c.voice;
+    voiceBtn.title='読み上げ音声の種類を切り替え';
+    voiceBtn.addEventListener('click', ()=>{
+      const idx = VOICE_CYCLE.indexOf(c.voice);
+      c.voice = VOICE_CYCLE[(idx+1)%VOICE_CYCLE.length];
+      renderCastList(); saveState();
+    });
+    row.appendChild(voiceBtn);
 
     if(c.edit){
       const nameInput = document.createElement('input');
@@ -591,7 +828,8 @@ $('#autoMatchBtn').addEventListener('click', ()=>{
   targets.forEach(line=>{
     line.querySelectorAll('.speaker-dot').forEach(d=>d.remove());
     const text = (line.textContent || '').replace(/\u200b/g,'');
-    const m = text.match(/^\s*([^\s:：]{1,30})[：:]/);
+    // 要件⑨：「：」「:」に加え、全角・半角スペースの組み合わせ（2文字以上連続）でも話者名の区切りと判定する
+    const m = text.match(/^\s*([^\s:：]{1,30})(?:[：:]|[ \u3000]{2,})/);
     if(m){
       const namesRaw = m[1];
       const names = namesRaw.split(/[、・\/]/).map(s=>s.trim()).filter(Boolean);
@@ -621,11 +859,58 @@ $('#autoMatchBtn').addEventListener('click', ()=>{
   alert(`${matchedCount} 行を自動マッチングしました。`);
 });
 
-/* ---------- 読み上げ（選択範囲から開始 / 再クリックで停止） ---------- */
+/* ---------- 読み上げ ---------- */
 function getScriptLines(){
   const children = Array.from(scriptEditor.children).filter(el=>el.nodeType===1);
   return children.length ? children : [scriptEditor];
 }
+const SPEAKER_PREFIX_RE = /^\s*[^\s:：]{1,30}(?:[：:]|[ \u3000]{2,})/;
+
+// 要件⑬：ルビ（<ruby><rt>）が付与された箇所は、読み（<rt>）のみを読み上げ対象にし、
+// 「漢字＋ふりがな」の二重読み上げを防ぐ
+function extractReadableText(lineEl){
+  const clone = lineEl.cloneNode(true);
+  clone.querySelectorAll('rp').forEach(rp=>rp.remove());
+  clone.querySelectorAll('ruby').forEach(ruby=>{
+    const rt = ruby.querySelector('rt');
+    const reading = rt ? (rt.textContent||'') : (ruby.textContent||'');
+    ruby.replaceWith(document.createTextNode(reading));
+  });
+  return (clone.textContent || '').replace(/\u200b/g,'');
+}
+
+// 要件⑪：話者自動マッチングで判定された話者のみに紐づく声で、セリフ本文のみを読み上げる
+function findJaVoice(gender){
+  const voices = (speechSynthesis.getVoices && speechSynthesis.getVoices()) || [];
+  const jaVoices = voices.filter(v=>/^ja/i.test(v.lang));
+  if(!jaVoices.length) return null;
+  const keyword = gender==='female' ? /female|女/i : /male|男/i;
+  return jaVoices.find(v=>keyword.test(v.name)) || jaVoices[0];
+}
+function voiceParamsForLine(line){
+  const speakerNames = (line.dataset.speaker||'').split(',').map(s=>s.trim()).filter(Boolean);
+  const char = speakerNames.length ? state.cast.find(c=>c.name===speakerNames[0]) : null;
+  const voiceKey = (char && char.voice) ? char.voice : VOICE_CYCLE[0];
+  return VOICE_PARAMS[voiceKey] || VOICE_PARAMS[VOICE_CYCLE[0]];
+}
+
+// 要件⑫：範囲選択がある場合はその範囲内の行のみを読み上げる（範囲外までは読み進めない）
+function getSelectedLineRange(lines){
+  const sel = window.getSelection();
+  if(!sel || sel.rangeCount===0 || sel.isCollapsed || sel.toString().trim().length===0) return null;
+  const range = sel.getRangeAt(0);
+  const findLineIndex = node=>{
+    while(node && node.parentNode !== scriptEditor && node !== scriptEditor) node = node.parentNode;
+    return lines.indexOf(node);
+  };
+  let startIdx = findLineIndex(range.startContainer);
+  let endIdx = findLineIndex(range.endContainer);
+  if(startIdx<0) startIdx = 0;
+  if(endIdx<0) endIdx = startIdx;
+  if(startIdx>endIdx){ const t=startIdx; startIdx=endIdx; endIdx=t; }
+  return {startIdx, endIdx};
+}
+
 $('#speakRowBtn').addEventListener('click', ()=>{
   if(isReading){
     speechSynthesis.cancel();
@@ -634,28 +919,35 @@ $('#speakRowBtn').addEventListener('click', ()=>{
     return;
   }
   const lines = getScriptLines();
-  const sel = window.getSelection();
-  let startIndex = 0;
-  if(sel && sel.rangeCount>0 && !sel.isCollapsed && sel.toString().trim().length>0){
-    let node = sel.anchorNode;
-    while(node && node.parentNode !== scriptEditor && node !== scriptEditor) node = node.parentNode;
-    const idx = lines.indexOf(node);
-    if(idx>=0) startIndex = idx;
-  }
+  const range = getSelectedLineRange(lines);
+  const startIndex = range ? range.startIdx : 0;
+  const endIndex = range ? range.endIdx : (lines.length-1);
+
   const queue = [];
-  for(let i=startIndex;i<lines.length;i++){
+  for(let i=startIndex;i<=endIndex;i++){
     const line = lines[i];
     if(line.classList && line.classList.contains('tokaki')) continue;
     if(lines.length>1 && !line.dataset.mic) continue;
-    const text = (line.textContent||'').replace(/^[^：:]*[：:]/,'').trim();
-    if(text) queue.push(text);
+    const readable = extractReadableText(line).replace(SPEAKER_PREFIX_RE,'').trim();
+    if(readable) queue.push({text:readable, line});
   }
-  if(queue.length===0){ alert('読み上げ可能な行がありません（マイク割当・ト書き設定をご確認ください）。'); return; }
+  if(queue.length===0){ alert('読み上げ可能な行がありません（マイク割当・ト書き設定・選択範囲をご確認ください）。'); return; }
+
+  // 要件⑧：音声合成の準備中は「音声生成中」と表示する
   isReading = true;
-  $('#speakRowBtn').textContent = '⏹ 停止';
-  queue.forEach((text, i)=>{
-    const u = new SpeechSynthesisUtterance(text);
+  $('#speakRowBtn').textContent = '音声生成中';
+  let started = false;
+  queue.forEach((item, i)=>{
+    const u = new SpeechSynthesisUtterance(item.text);
     u.lang='ja-JP';
+    const params = voiceParamsForLine(item.line);
+    u.pitch = params.pitch;
+    u.rate = params.rate;
+    const voice = findJaVoice(params.gender);
+    if(voice) u.voice = voice;
+    u.onstart = ()=>{
+      if(!started){ started = true; $('#speakRowBtn').textContent = '⏹ 停止'; }
+    };
     if(i===queue.length-1){
       u.onend = ()=>{ isReading=false; $('#speakRowBtn').textContent='🔊 読み上げ'; };
     }
@@ -675,6 +967,26 @@ async function syncGoogleDoc(silent){
   if(!url){ $('#gdocStatus').textContent=''; return; }
   const id = extractGoogleDocId(url);
   if(!id){ $('#gdocStatus').textContent='URLが正しくありません'; return; }
+
+  // Googleアカウントにログイン済みの場合は Drive API 経由で取得（限定公開ドキュメントでも確実に同期可能）
+  if(googleAccessToken){
+    try{
+      const apiUrl = `https://www.googleapis.com/drive/v3/files/${id}/export?mimeType=text/html`;
+      const res = await fetch(apiUrl, {headers:{Authorization:'Bearer '+googleAccessToken}});
+      if(!res.ok) throw new Error('Drive API 取得失敗 status:'+res.status);
+      const html = await res.text();
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const body = doc.body ? doc.body.innerHTML : html;
+      scriptEditor.innerHTML = body;
+      state.scriptHTML = scriptEditor.innerHTML;
+      saveState();
+      $('#gdocStatus').textContent = 'Googleアカウント経由で同期しました（'+new Date().toLocaleTimeString('ja-JP')+'）';
+      return;
+    }catch(err){
+      if(!silent) console.warn('Drive API同期に失敗。公開URL方式にフォールバックします。', err);
+    }
+  }
+
   const exportUrl = `https://docs.google.com/document/d/${id}/export?format=html`;
   try{
     const res = await fetch(exportUrl, {mode:'cors'});
@@ -687,7 +999,9 @@ async function syncGoogleDoc(silent){
     saveState();
     $('#gdocStatus').textContent = '同期しました（'+new Date().toLocaleTimeString('ja-JP')+'）';
   }catch(err){
-    $('#gdocStatus').textContent = '同期に失敗しました（ドキュメントを「ウェブに公開」設定にしてください）';
+    $('#gdocStatus').textContent = googleAccessToken
+      ? '同期に失敗しました'
+      : '同期に失敗しました（ドキュメントを「ウェブに公開」設定にするか、Googleアカウントにログインしてください）';
     if(!silent) console.warn(err);
   }
 }
@@ -872,6 +1186,12 @@ function renderCustomFxTable(){
       td.textContent = e[f];
       tr.appendChild(td);
     });
+    const applyTd=document.createElement('td');
+    const applyBtn=document.createElement('button');
+    applyBtn.textContent='反映'; applyBtn.className='apply-btn';
+    applyBtn.addEventListener('click', ()=>{ applyCustomFxToStage(e); });
+    applyTd.appendChild(applyBtn);
+    tr.appendChild(applyTd);
     const delTd=document.createElement('td');
     const delBtn=document.createElement('button');
     delBtn.textContent='✕'; delBtn.className='del-btn';
@@ -980,11 +1300,24 @@ function updateStagePreviewMedia(){
   applyStrobeClasses();
 }
 
+$('#stageVideoDirectBtn').addEventListener('click', ()=>{
+  if(state.stageVideoOverride){
+    // 要件⑪：指定中に再度押すと指定を終了する
+    state.stageVideoOverride = '';
+    $('#stageVideoDirectBtn').classList.remove('active-highlight');
+    updateStagePreviewMedia();
+    saveState();
+  }else{
+    $('#stageVideoInput').click();
+  }
+});
 $('#stageVideoInput').addEventListener('change', e=>{
   const file = e.target.files[0];
   if(!file) return;
   state.stageVideoOverride = URL.createObjectURL(file);
+  $('#stageVideoDirectBtn').classList.add('active-highlight');
   updateStagePreviewMedia();
+  saveState();
 });
 
 /* ============================================================
@@ -1002,39 +1335,62 @@ $('#stageItemInput').addEventListener('change', e=>{
   reader.readAsDataURL(file);
 });
 
+/* 要件⑭：ドラッグ&ドロップの代わりに「タップ（クリック）して選択→移動先をタップ」で配置する方式。
+   スマホのスクロール操作と競合せず、PC・スマホのどちらでも同じ操作感で快適に動かせる。 */
+let selectedStageItemId = null;
+
 function renderStageItems(){
   const layer = $('#stageItemsLayer');
   layer.innerHTML='';
   state.stageItems.forEach(item=>{
     const el = document.createElement('div');
-    el.className='stage-item';
+    el.className='stage-item' + (item.id===selectedStageItemId ? ' selected' : '');
     el.style.left = item.x+'px';
     el.style.top = item.y+'px';
+    el.dataset.itemId = item.id;
     const img = document.createElement('img');
     img.src = item.src;
     el.appendChild(img);
-    makeDraggable(el, item);
+    if(item.id===selectedStageItemId && !state.locked){
+      const removeBtn = document.createElement('button');
+      removeBtn.className='stage-item-remove-btn';
+      removeBtn.textContent='✖';
+      removeBtn.title='このアイテムを削除';
+      removeBtn.addEventListener('click', ev=>{
+        ev.stopPropagation();
+        state.stageItems = state.stageItems.filter(i=>i.id!==item.id);
+        if(selectedStageItemId===item.id) selectedStageItemId=null;
+        renderStageItems();
+        saveState();
+      });
+      el.appendChild(removeBtn);
+    }
+    el.addEventListener('click', e=>{
+      if(state.locked) return;
+      e.stopPropagation();
+      selectedStageItemId = (selectedStageItemId===item.id) ? null : item.id;
+      renderStageItems();
+      updateStagePreviewSelectingClass();
+    });
     layer.appendChild(el);
   });
+  updateStagePreviewSelectingClass();
 }
-function makeDraggable(el, item){
-  let dragging=false, offX=0, offY=0;
-  el.addEventListener('pointerdown', e=>{
-    if(state.locked) return;
-    dragging=true;
-    offX = e.offsetX; offY = e.offsetY;
-    el.setPointerCapture(e.pointerId);
-  });
-  el.addEventListener('pointermove', e=>{
-    if(!dragging) return;
-    const parentRect = el.parentElement.getBoundingClientRect();
-    item.x = e.clientX - parentRect.left - offX;
-    item.y = e.clientY - parentRect.top - offY;
-    el.style.left = item.x+'px';
-    el.style.top = item.y+'px';
-  });
-  el.addEventListener('pointerup', ()=>{ dragging=false; saveState(); });
+function updateStagePreviewSelectingClass(){
+  $('#stagePreview').classList.toggle('item-selecting', !!selectedStageItemId);
 }
+$('#stagePreview').addEventListener('click', e=>{
+  if(state.locked || !selectedStageItemId) return;
+  if(e.target.closest('.stage-item')) return; // アイテム自体のタップは選択切替（上のハンドラ）に任せる
+  const item = state.stageItems.find(i=>i.id===selectedStageItemId);
+  if(!item) return;
+  const rect = $('#stagePreview').getBoundingClientRect();
+  const itemSize = 60; // .stage-item の width/height と合わせる
+  item.x = e.clientX - rect.left - itemSize/2;
+  item.y = e.clientY - rect.top - itemSize/2;
+  renderStageItems();
+  saveState();
+});
 
 /* ============================================================
    動画再生 & Cue記録
@@ -1055,6 +1411,7 @@ function currentTimeSource(){
   return video.currentTime || scriptAudioPlayer.currentTime || 0;
 }
 function currentLineText(){
+  // 要件⑨：読み上げ中の行を自動取得する仕組みは廃止し、常に選択範囲のみを記録する
   const sel = window.getSelection();
   if(sel && sel.toString().trim().length>0) return sel.toString().trim();
   return '';
@@ -1086,6 +1443,55 @@ $('#scriptCueBtn').addEventListener('click', ()=> recordCue(scriptAudioPlayer.cu
 $('#cueTabAddBtn').addEventListener('click', ()=> recordCue(currentTimeSource()));
 $('#customfxCueBtn').addEventListener('click', ()=> recordCue(currentTimeSource()));
 
+/* ---------- Cue/独自Effect一覧の内容をステージ画面へ上書き反映（要件⑤） ---------- */
+function applyCueToStage(cue){
+  const stageRevMap = {'暗転':'anten','全照':'zensyou','半照':'hansyou'};
+  if(stageRevMap[cue.stage]) state.stageState = stageRevMap[cue.stage];
+
+  if(state.bgColorMode==='on'){
+    if(cue.bg){
+      const idx = COLOR_PALETTE.findIndex(c=>c.name===cue.bg);
+      state.activeColorIndex = idx>=0 ? idx : null;
+    }else{
+      state.activeColorIndex = null;
+    }
+    if(state.effectType==='none'){
+      state.strobeOn = (cue.strobe==='◯');
+    }else{
+      const revKey = Object.keys(STROBE_LABEL_CUE).find(k=>STROBE_LABEL_CUE[k]===cue.strobe);
+      state.strobeMode = revKey || 'none';
+    }
+    if(state.effectType==='existing'){
+      state.effectOn = !!cue.effect;
+    }else if(state.effectType==='original'){
+      state.effectSubMode = cue.effect ? 'original' : 'none';
+    }
+  }
+  const revFadeKey = Object.keys(FADE_LABEL).find(k=>FADE_LABEL[k]===cue.fade);
+  state.fadeMode = revFadeKey || 'none';
+
+  renderColorToggles();
+  updateStrobeUI();
+  updateEffectUI();
+  updateFadeUI();
+  updateStagePreviewMedia();
+  saveState();
+}
+function applyCustomFxToStage(fx){
+  if(state.bgColorMode==='on'){
+    const idx = COLOR_PALETTE.findIndex(c=>c.name===fx.colorName);
+    state.activeColorIndex = idx>=0 ? idx : null;
+    if(state.effectType!=='none'){
+      const revKey = Object.keys(STROBE_LABEL_CUE).find(k=>STROBE_LABEL_CUE[k]===fx.strobeLabel);
+      state.strobeMode = revKey || 'none';
+    }
+  }
+  renderColorToggles();
+  updateStrobeUI();
+  updateStagePreviewMedia();
+  saveState();
+}
+
 const CUE_TBODY_IDS = ['cueTableBody_script','cueTableBody_video','cueTableBody_cue'];
 const CUE_FIELDS = ['sec','line','audio','stage','bg','effect','strobe','fade'];
 function renderCueTable(){
@@ -1103,6 +1509,12 @@ function renderCueTable(){
         td.addEventListener('blur', ()=>{ c[f]=td.textContent; saveState(); });
         tr.appendChild(td);
       });
+      const applyTd = document.createElement('td');
+      const applyBtn = document.createElement('button');
+      applyBtn.textContent='反映'; applyBtn.className='apply-btn';
+      applyBtn.addEventListener('click', ev=>{ ev.stopPropagation(); applyCueToStage(c); });
+      applyTd.appendChild(applyBtn);
+      tr.appendChild(applyTd);
       const delTd = document.createElement('td');
       const delBtn = document.createElement('button');
       delBtn.textContent='✕'; delBtn.className='del-btn';
@@ -1183,12 +1595,15 @@ window.addEventListener('beforeunload', saveState);
 /* ============================================================
    初期化
    ============================================================ */
-document.addEventListener('DOMContentLoaded', ()=>{
+document.addEventListener('DOMContentLoaded', async ()=>{
   loadState();
+  await loadAdminsFromDataJson();
   populateAdminColorSelect();
   updateAdminAssetPathPreview();
   applyModalAssets();
   initModalLogic();
+  initGoogleLoginUI();
+  updateGoogleLoginUI();
   if(state.initDone){
     $('#initModal').classList.add('hidden');
     applyAllSettingsToUI();

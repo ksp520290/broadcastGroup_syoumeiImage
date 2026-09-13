@@ -28,6 +28,11 @@ body{margin:0;font-family:"Hiragino Sans","Yu Gothic",sans-serif;background:var(
 .admin-dynamic-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;padding:8px 0;}
 .admin-dynamic-row select{padding:4px;}
 #adminAssetPathPreview{width:100%;}
+.admin-users-add-row{display:flex;gap:6px;margin:10px 0;flex-wrap:wrap;}
+.admin-users-add-row input{flex:1;min-width:100px;padding:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg);}
+#adminUsersTable td{font-size:12px;}
+.admin-user-self-row{background:rgba(90,164,222,.15);}
+.admin-user-id-input,.admin-user-pass-input{width:100%;border:1px solid var(--border);background:var(--bg);color:var(--fg);padding:3px;font-size:12px;}
 
 /* ---------- ヘッダー ---------- */
 header{height:var(--header-h);display:flex;align-items:center;justify-content:space-between;padding:0 12px;background:var(--panel);border-bottom:1px solid var(--border);flex-wrap:wrap;gap:6px;position:sticky;top:0;z-index:100;}
@@ -43,16 +48,21 @@ header button, .file-btn{font-size:12px;padding:5px 8px;border:1px solid var(--b
 .settings-menu{position:absolute;right:0;top:110%;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px;display:flex;flex-direction:column;gap:4px;min-width:150px;z-index:200;box-shadow:0 4px 12px rgba(0,0,0,.2);}
 .settings-menu button{width:100%;text-align:left;}
 
-#versionMemoBar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 12px;background:var(--panel);border-bottom:1px solid var(--border);font-size:12px;}
+#versionMemoBar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 12px;background:var(--panel);border-bottom:1px solid var(--border);font-size:12px;margin-left:70px;transition:margin-left .2s;position:relative;z-index:10;width:calc(100% - 70px);}
+body.cast-open #versionMemoBar{margin-left:340px;width:calc(100% - 340px);}
 #versionMemoBar input{flex:1;min-width:160px;padding:4px;border:1px solid var(--border);background:var(--bg);color:var(--fg);}
-#versionMemoList{list-style:none;margin:0;padding:0;display:flex;gap:8px;flex-wrap:wrap;}
+#versionMemoList{list-style:none;margin:8px 0 0;padding:0;display:flex;gap:8px;flex-wrap:wrap;width:100%;}
 #versionMemoList li{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 6px;display:flex;align-items:center;gap:6px;}
-#versionMemoList .restore-btn{font-size:10px;padding:2px 5px;border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:3px;cursor:pointer;}
+#versionMemoList .memo-title-btn{background:none;border:none;color:inherit;font-size:12px;cursor:pointer;text-decoration:underline;padding:0;}
+#versionMemoList .memo-title-btn:hover{color:var(--accent);}
 
 /* ---------- レイアウト ---------- */
-#mainLayout{display:flex;flex-direction:column;height:calc(100vh - var(--header-h) - 40px);margin-left:70px;}
+#mainLayout{display:flex;flex-direction:column;height:calc(100vh - var(--header-h) - 40px);margin-left:70px;transition:margin-left .2s;}
 @media (min-width:900px) and (orientation:landscape){
   #mainLayout{flex-direction:row;}
+  /* 要件③：横画面時のみ、配役パネルが開いた分だけ台本/動画/Cue画面とステージ画面を縮小（右へ圧縮）表示し、重なりを解消する。
+     縦画面では画面が細くなりすぎるため、この圧縮は行わない（配役パネルは重なったまま表示される）。 */
+  body.cast-open #mainLayout{margin-left:340px;}
 }
 .content-area{flex:1;overflow:auto;padding:10px;border:1px solid var(--border);margin:4px;border-radius:8px;background:var(--panel);position:relative;}
 
@@ -67,11 +77,15 @@ header button, .file-btn{font-size:12px;padding:5px 8px;border:1px solid var(--b
 /* 閉じた状態は表示自体を隠すのみで、名前を強制的に3文字へ切り詰めることはしない */
 .cast-panel.closed .cast-row{display:none;}
 .cast-row input[type=text]{width:70px;font-size:12px;padding:2px;}
-.mic-btn{cursor:pointer;border:1px solid var(--border);border-radius:4px;padding:2px 4px;background:var(--bg);}
-.mic-btn.duplicate{border:2px solid red;background:#ffdddd;color:#a00;font-weight:bold;}
-.mic-btn.duplicate::before{content:"⚠ ";}
+/* 要件⑥：役者名入力欄は登場人物名・保存ボタンはそのままに、幅を約70%に縮小 */
+.cast-row input[type=text].actor-input{width:49px;}
+/* 要件④：マイクがかぶった場合も警告ではなく、マイク種別ごとの固定色のみで判別する */
+.mic-btn{cursor:pointer;border:1px solid var(--border);border-radius:4px;padding:2px 4px;font-weight:bold;}
+.mic-btn.mic-shared{outline:2px solid #000;outline-offset:1px;}
+.voice-btn{cursor:pointer;border:1px solid var(--border);border-radius:4px;padding:2px 4px;background:var(--bg);color:var(--fg);font-size:11px;}
 .color-swatch-btn{width:18px;height:18px;border-radius:50%;border:1px solid #000;cursor:pointer;}
 .del-btn{color:#c00;cursor:pointer;background:none;border:none;font-size:14px;}
+.apply-btn{color:#fff;background:var(--accent);border:none;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;}
 .cast-add-row{display:flex;gap:4px;margin-top:8px;}
 .cast-add-row input{flex:1;font-size:12px;padding:4px;}
 
@@ -114,8 +128,12 @@ body.dark-mode .script-editor *{color:inherit;}
 .stage-bg-img{width:100%;height:100%;object-fit:cover;position:absolute;inset:0;transition:opacity var(--fade-sec) ease;}
 .stage-color-filter{position:absolute;inset:0;mix-blend-mode:multiply;opacity:0;transition:opacity var(--fade-sec) ease,background-color var(--fade-sec) ease;}
 #stageItemsLayer{position:absolute;inset:0;}
-.stage-item{position:absolute;width:60px;height:60px;cursor:grab;user-select:none;}
+.stage-item{position:absolute;width:60px;height:60px;cursor:pointer;user-select:none;touch-action:none;}
 .stage-item img{width:100%;height:100%;object-fit:contain;pointer-events:none;}
+.stage-item.selected{outline:3px solid #e63946;outline-offset:2px;box-shadow:0 0 10px rgba(230,57,70,.85);border-radius:4px;}
+.stage-item-remove-btn{position:absolute;top:-10px;right:-10px;width:20px;height:20px;line-height:18px;padding:0;border-radius:50%;border:1px solid #fff;background:#e63946;color:#fff;font-size:11px;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.4);z-index:5;}
+.stage-preview.item-selecting{cursor:crosshair;}
+.file-btn.active-highlight{border-color:#e63946;box-shadow:0 0 0 2px #e63946;background:#ffe5e5;font-weight:bold;}
 
 .stage-color-section{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:10px 0;justify-content:center;}
 .color-toggle-row{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;flex:1;}

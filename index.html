@@ -4,7 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>舞台演出プランナー</title>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css">    
+<link rel="icon" href="./img/icon.ico">
 </head>
 <body class="light-mode">
 
@@ -17,11 +18,11 @@
       <p class="modal-question">設定1：背景色あり / 背景色なし</p>
       <div class="choice-row">
         <button class="choice-btn" data-group="bgColor" data-value="on">
-          <img data-asset-path="img/choice_background-O.jpg" alt="背景色あり" class="choice-img" onerror="this.style.background='#5AA4DE';this.removeAttribute('src')">
+          <img data-asset-path="img/choice_background0.jpg" alt="背景色あり" class="choice-img" onerror="this.style.background='#5AA4DE';this.removeAttribute('src')">
           <span class="choice-label">背景色あり</span>
         </button>
         <button class="choice-btn" data-group="bgColor" data-value="off">
-          <img data-asset-path="img/choice_background-X.jpg" alt="背景色なし" class="choice-img" onerror="this.style.background='#888';this.removeAttribute('src')">
+          <img data-asset-path="img/choice_backgroundX.jpg" alt="背景色なし" class="choice-img" onerror="this.style.background='#888';this.removeAttribute('src')">
           <span class="choice-label">背景色なし</span>
         </button>
       </div>
@@ -51,27 +52,35 @@
 <div id="loginModal" class="modal-overlay hidden">
   <div class="modal-box">
     <h3>ログイン</h3>
-    <input type="password" id="loginPasswordInput" placeholder="パスワード" style="width:100%;padding:8px;margin:8px 0;">
-    <p class="hint">※デモ用パスワード: admin1234</p>
+    <input type="text" id="loginIdInput" placeholder="ID" autocomplete="username" style="width:100%;padding:8px;margin:8px 0;">
+    <input type="password" id="loginPasswordInput" placeholder="パスワード" autocomplete="current-password" style="width:100%;padding:8px;margin:8px 0;">
     <button id="loginSubmitBtn" class="primary-btn">ログイン</button>
     <button id="loginCancelBtn" style="width:100%;margin-top:8px;">キャンセル</button>
+  </div>
+</div>
+
+<!-- ==================== Googleログインモーダル ==================== -->
+<div id="googleLoginModal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <h3>Googleログイン</h3>
+    <p class="hint">学校の都合上Google Cloud Consoleを使用できないため、OAuthクライアントIDを使った自動ログインの代わりに、Google OAuth 2.0 Playground（<a href="https://developers.google.com/oauthplayground" target="_blank" rel="noopener">developers.google.com/oauthplayground</a>）などで取得したアクセストークンをご自身で貼り付ける方式にしています。Playground左側でスコープ「Drive API v3」の「drive.readonly」と「Google Docs API」の「documents.readonly」を選択して認証し、発行された「Access token」をコピーして下に貼り付けてください。</p>
+    <div id="googleLoginInputArea">
+      <input type="text" id="googleTokenInput" placeholder="アクセストークンを貼り付け" style="width:100%;padding:8px;margin:8px 0;">
+      <button id="googleTokenApplyBtn" class="primary-btn">この情報でログイン</button>
+    </div>
+    <div id="googleLoginStatusArea" class="hidden">
+      <p class="hint" id="googleLoginStatus">Googleアカウント：未ログイン</p>
+      <button id="googleLogoutBtn" class="choice-btn simple">Googleからログアウト</button>
+    </div>
+    <button id="googleLoginCloseBtn" style="width:100%;margin-top:8px;">閉じる</button>
   </div>
 </div>
 
 <!-- ==================== 管理者画面モーダル ==================== -->
 <div id="adminModal" class="modal-overlay hidden">
   <div class="modal-box admin-box">
-    <h3>管理者画面：ボタン画像／動画アップロード</h3>
-    <p class="hint">アップロードしたファイルはブラウザ内に自動保存され、img／movフォルダの代わりとして各ボタン・ステージ表示に即時反映されます（実ファイルはGitHub連携保存時にimgフォルダへコミットされます）。</p>
-
-    <h4>初期選択ボタン画像</h4>
-    <div class="admin-asset-row" data-path="img/choice_background-O.jpg"><span>背景色あり ボタン画像</span><input type="file" accept="image/*"></div>
-    <div class="admin-asset-row" data-path="img/choice_background-X.jpg"><span>背景色なし ボタン画像</span><input type="file" accept="image/*"></div>
-
-    <h4>背景色なし用 デフォルト画像</h4>
-    <div class="admin-asset-row" data-path="img/anten.jpg"><span>暗転 ステージ画像</span><input type="file" accept="image/*"></div>
-    <div class="admin-asset-row" data-path="img/zensyou.jpg"><span>全照 ステージ画像</span><input type="file" accept="image/*"></div>
-    <div class="admin-asset-row" data-path="img/hansyou.jpg"><span>50% ステージ画像</span><input type="file" accept="image/*"></div>
+    <h3>アセット管理：ボタン画像／動画アップロード</h3>
+    <p class="hint">アップロードしたファイルはブラウザ内に自動保存され、各ボタン・ステージ表示に即時反映されます（実ファイルはGitHub連携保存時にimg／movフォルダへコミットされます）。初期選択ボタン画像・背景色なし用デフォルト画像はimg フォルダ内の固定ファイル（choice_background0.jpg／choice_backgroundX.jpg／anten.jpg／zensyou.jpg／hansyou.jpg）を直接参照するため、ここからのアップロードはできません。</p>
 
     <h4>背景色あり用 個別アセット（舞台・ストロボ・色）</h4>
     <div class="admin-dynamic-row">
@@ -80,7 +89,7 @@
       <select id="adminAssetStrobe">
         <option value="ストロボ✖">ストロボ✖</option>
         <option value="ストロボ静止">ストロボ静止</option>
-        <option value="ストロボちかちか">ストロボちかちか</option>
+        <option value="ストロボ独立">ストロボ独立</option>
         <option value="ストロボくるくる">ストロボくるくる</option>
       </select>
       <select id="adminAssetColor"></select>
@@ -89,6 +98,24 @@
     </div>
 
     <button id="adminCloseBtn" class="primary-btn">閉じる</button>
+  </div>
+</div>
+
+<!-- ==================== 管理者一覧画面モーダル ==================== -->
+<div id="adminUsersModal" class="modal-overlay hidden">
+  <div class="modal-box admin-box">
+    <h3>管理者画面</h3>
+    <p class="hint">ログインに使用できるID・パスワードの一覧です。自分がログインに使用したID以外のパスワードは閲覧できません。編集・削除も自分の分のみ可能です。</p>
+    <table class="cue-table" id="adminUsersTable">
+      <thead><tr><th>ID</th><th>パスワード</th><th></th></tr></thead>
+      <tbody id="adminUsersTableBody"></tbody>
+    </table>
+    <div class="admin-users-add-row">
+      <input type="text" id="newAdminIdInput" placeholder="新規ID">
+      <input type="text" id="newAdminPassInput" placeholder="パスワード">
+      <button id="newAdminAddBtn">追加</button>
+    </div>
+    <button id="adminUsersCloseBtn" class="primary-btn">閉じる</button>
   </div>
 </div>
 
@@ -117,11 +144,13 @@
   </div>
   <div class="header-right">
     <button id="darkModeToggle" title="ダーク/ライト切替">🌙</button>
-    <span id="initGatedGroup" class="hidden inline-group">
+    <span id="publicToolsGroup" class="inline-group">
       <button id="exportJsonBtn">JSON出力</button>
       <label class="file-btn">JSON読込<input type="file" id="importJsonInput" accept=".json" hidden></label>
-      <button id="printBtn">印刷/PDF</button>
       <button id="reopenInitBtn">初期設定</button>
+    </span>
+    <span id="initGatedGroup" class="hidden inline-group">
+      <button id="printBtn">印刷/PDF</button>
     </span>
     <div class="login-area">
       <button id="loginBtn">ログイン</button>
@@ -130,7 +159,9 @@
         <button id="exportCsvBtn">CSV出力</button>
         <button id="lockModeToggle">🔓 練習モード</button>
         <button id="fadeSecBtn">フェード秒数</button>
-        <button id="openAdminBtn">管理者画面</button>
+        <button id="openGoogleLoginBtn">Googleログイン</button>
+        <button id="openAdminBtn">アセット管理</button>
+        <button id="openAdminUsersBtn">管理者画面</button>
         <button id="logoutBtn">ログアウト</button>
       </div>
     </div>
@@ -140,7 +171,8 @@
 <div id="versionMemoBar">
   <input type="text" id="versionMemoInput" placeholder="例）10月5日 リハーサル版 変更履歴メモ">
   <button id="versionMemoAddBtn">履歴に追加</button>
-  <ul id="versionMemoList"></ul>
+  <button id="versionMemoListToggleBtn">履歴一覧</button>
+  <ul id="versionMemoList" class="hidden"></ul>
 </div>
 
 <!-- ==================== メインレイアウト ==================== -->
@@ -168,19 +200,17 @@
       <button class="tab-btn active" data-tab="script">台本</button>
       <button class="tab-btn" data-tab="video">動画</button>
       <button class="tab-btn" data-tab="cue">Cue</button>
-      <button class="tab-btn" data-tab="customfx">独自Effect</button>
+      <button class="tab-btn hidden" data-tab="customfx" id="customfxTabBtn">独自Effect</button>
     </div>
 
     <div id="tab-script" class="tab-pane active">
       <div class="script-toolbar sticky-toolbar">
         <div class="toolbar-row">
+          <button id="scriptCueBtn" class="cue-record-btn">📍 Cue記録</button>
           <button id="rubyBtn">ルビ付与</button>
           <button id="tokakiBtn">ト書き行にする</button>
           <button id="autoMatchBtn">話者自動マッチング</button>
           <button id="speakRowBtn">🔊 読み上げ</button>
-        </div>
-        <div class="toolbar-row">
-          <button id="scriptCueBtn" class="cue-record-btn">📍 Cue記録</button>
         </div>
         <div class="toolbar-row">
           <label class="file-btn">音源読込<input type="file" id="scriptAudioInput" accept="audio/*" hidden></label>
@@ -190,7 +220,7 @@
           <audio id="scriptAudioPlayer" hidden></audio>
         </div>
         <div class="toolbar-row gdoc-row">
-          <input type="text" id="gdocUrlInput" placeholder="GoogleドキュメントのURLを貼り付けて自動同期">
+          <input type="text" id="gdocUrlInput" placeholder="GoogleドキュメントのURLを貼り付けて自動同期(Web公開設定にしてください)">
           <button id="gdocSyncBtn">同期</button>
           <span id="gdocStatus" class="hint"></span>
         </div>
@@ -200,7 +230,7 @@
 
       <h3 class="cue-mirror-title">Cue一覧</h3>
       <table class="cue-table">
-        <thead><tr><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th><th></th></tr></thead>
+        <thead><tr><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th><th>反映</th><th></th></tr></thead>
         <tbody id="cueTableBody_script"></tbody>
       </table>
     </div>
@@ -213,7 +243,7 @@
         <span id="currentVideoTime">0.0秒</span>
       </div>
       <table class="cue-table">
-        <thead><tr><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th><th></th></tr></thead>
+        <thead><tr><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th><th>反映</th><th></th></tr></thead>
         <tbody id="cueTableBody_video"></tbody>
       </table>
     </div>
@@ -223,7 +253,7 @@
         <button id="cueTabAddBtn" class="cue-record-btn">📍 Cue記録</button>
       </div>
       <table class="cue-table">
-        <thead><tr><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th><th></th></tr></thead>
+        <thead><tr><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th><th>反映</th><th></th></tr></thead>
         <tbody id="cueTableBody_cue"></tbody>
       </table>
     </div>
@@ -232,7 +262,7 @@
       <button id="customfxCueBtn" class="cue-record-btn">📍 Cue記録</button>
       <p class="hint">高速切り替えが「独自Effect」の場合に、ステージ画面の保存操作で追加された独自Effectの記録一覧です。</p>
       <table class="cue-table">
-        <thead><tr><th>No.</th><th>ステップ</th><th>秒数</th><th>背景色</th><th>ストロボ</th><th></th></tr></thead>
+        <thead><tr><th>No.</th><th>ステップ</th><th>秒数</th><th>背景色</th><th>ストロボ</th><th>反映</th><th></th></tr></thead>
         <tbody id="customFxTableBody"></tbody>
       </table>
     </div>
@@ -271,7 +301,8 @@
 
     <div class="stage-item-add">
       <label class="file-btn">配置アイテム画像追加<input type="file" id="stageItemInput" accept="image/*" hidden></label>
-      <label class="file-btn">ステージ動画を直接指定<input type="file" id="stageVideoInput" accept="video/*" hidden></label>
+      <button id="stageVideoDirectBtn" class="file-btn">ステージ動画を直接指定</button>
+      <input type="file" id="stageVideoInput" accept="video/*" hidden>
     </div>
   </section>
 
