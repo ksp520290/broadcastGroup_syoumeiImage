@@ -59,10 +59,6 @@ const FADE_CYCLE = ['none','in','out'];
 const FADE_LABEL = {none:'フェードなし', in:'フェードイン', out:'フェードアウト'};
 // 要件⑦：Cue一覧のFader列に割り当てる循環（1→2→…→9→0→1…）
 const DIGIT_CYCLE = ['1','2','3','4','5','6','7','8','9','0'];
-// 要件①②：本番モード＝ゲームモードの判定用許容誤差・長押し閾値
-const GAME_HIT_TOLERANCE_SEC = 0.3;
-const GAME_MISS_WINDOW_SEC = 2.0;
-const GAME_LONGPRESS_MIN_MS = 400;
 // 要件⑩：ストロボくるくるの色変化クロスフェード時間（秒）
 const KURUKURU_CROSSFADE_SEC = 1;
 
@@ -100,7 +96,12 @@ let state = {
   audioSourceCount:0,
   // 要件④：音源を複数管理する（表示順=配列順、name は①②③…を自動採番）
   audioSources:[],           // {id,name,src,startOffset}
-  currentAudioTrackId:null   // 直近に再生／使用したトラック（Cue記録時の「音源」欄に反映）
+  currentAudioTrackId:null,  // 直近に再生／使用したトラック（Cue記録時の「音源」欄に反映）
+  // 追加要望⑦：動画タブでアップロードした動画（従来は保存されず消えていた）
+  rehearsalVideoSrc:'',
+  // 追加要望④⑥⑪⑫：「照明職人用」の現在のNo.（台本/動画/Cueタブの📍Cue記録で自動+1、
+  // 照明職人用タブでは手動編集・テスト対象として使用）
+  cfxCurrentNo:1
 };
 
 let swInterval=null, swStart=0;
@@ -300,6 +301,7 @@ $('#loginSubmitBtn').addEventListener('click', ()=>{
     state.loggedIn = true;
     state.loggedInAdminId = matched.id;
     updateLoginUI();
+    renderCueTable(); // 追加要望③：ログイン状態でFader/順番列の表示・編集可否が変わるため再描画
     $('#loginModal').classList.add('hidden');
     saveState();
   }else{
@@ -312,7 +314,12 @@ $('#settingsMenuBtn').addEventListener('click', ()=>{
 $('#logoutBtn').addEventListener('click', ()=>{
   state.loggedIn = false;
   state.loggedInAdminId = null;
+  // 追加要望②：ログアウトした場合、本番モードは強制解除する
+  if(state.locked){
+    state.locked = false;
+  }
   updateLoginUI();
+  applyAllSettingsToUI();
   saveState();
 });
 $('#reopenInitBtn').addEventListener('click', ()=>{
@@ -549,6 +556,11 @@ function applyAllSettingsToUI(){
   $('#darkModeToggle').textContent = state.darkMode ? '☀' : '🌙';
   $('#scriptEditor').innerHTML = state.scriptHTML || '';
   $('#gdocUrlInput').value = state.gdocUrl || '';
+  // 追加要望⑦：保存済みの動画タブの動画を復元する
+  if(state.rehearsalVideoSrc && $('#rehearsalVideo').src !== state.rehearsalVideoSrc){
+    $('#rehearsalVideo').src = state.rehearsalVideoSrc;
+  }
+  syncCfxNoInputs();
   document.documentElement.style.setProperty('--fade-sec', (state.fadeDurationSec||1)+'s');
   updateLoginUI();
   applyModalAssets();
@@ -587,12 +599,14 @@ $('#darkModeToggle').addEventListener('click', ()=>{
   saveState();
 });
 $('#lockModeToggle').addEventListener('click', ()=>{
+  // 追加要望②：ログアウトしている場合は本番モードを利用不可にする
+  if(!state.locked && !state.loggedIn){
+    alert('本番モードの利用にはログインが必要です。');
+    return;
+  }
   state.locked = !state.locked;
-  if(!state.locked){
-    stopGameMonitor();
-    $('#gameResultModal').classList.add('hidden');
-  }else{
-    resetGameRound();
+  if(state.locked){
+    resetGameReflection();
   }
   applyAllSettingsToUI();
   saveState();
@@ -618,16 +632,14 @@ $('#swStartBtn').addEventListener('click', ()=>{
     state.stopwatch.elapsed = performance.now() - swStart;
     updateSWDisplay();
   }, 100);
-  // 要件①：本番モード（ゲームモード）ではストップウォッチ開始と同時にゲーム判定を開始する
-  if(state.locked && state.cues.length>0){
-    if(state.stopwatch.elapsed<50) resetGameRound();
-    startGameMonitor();
+  // 追加要望⑤：本番モードでゼロから開始する場合は反映済み（グレー）状態をリセットする
+  if(state.locked && state.stopwatch.elapsed<50){
+    resetGameReflection();
   }
 });
 $('#swStopBtn').addEventListener('click', ()=>{
   state.stopwatch.running = false;
   clearInterval(swInterval);
-  stopGameMonitor();
   saveState();
 });
 $('#swResetBtn').addEventListener('click', ()=>{
@@ -635,7 +647,7 @@ $('#swResetBtn').addEventListener('click', ()=>{
   clearInterval(swInterval);
   state.stopwatch.elapsed = 0;
   updateSWDisplay();
-  resetGameRound();
+  resetGameReflection();
   saveState();
 });
 
@@ -1195,6 +1207,14 @@ function renderAudioTracks(){
 
     playBtn.addEventListener('click', ()=>{
       if(audioEl.paused){
+        // 追加要望⑨：複数音源が同時に流れてしまう不具合を防ぐため、
+        // 再生開始時に他の音源トラックを停止してから再生する
+        Object.values(audioTrackEls).forEach(t=>{
+          if(t.audioEl && t.audioEl!==audioEl && !t.audioEl.paused){
+            t.audioEl.pause();
+          }
+        });
+        $all('.audio-track-row button').forEach(b=>{ if(b.textContent==='⏸️') b.textContent='▶'; });
         if(track.startOffset && audioEl.currentTime===0) audioEl.currentTime = track.startOffset;
         audioEl.play();
         playBtn.textContent='⏸️';
@@ -1408,35 +1428,92 @@ $('#fadeModeBtn').addEventListener('click', ()=>{
   saveState();
 });
 
-/* ---------- 独自Effect 記録 ---------- */
+/* ---------- 独自Effect 記録（要件④⑥⑪⑬） ---------- */
+// 「照明職人用」の現在のNo.は、ステージ側の入力(#cfxNo)と照明職人用タブの入力(#cfxCurrentNoInput)の
+// 2箇所に表示され、常にstate.cfxCurrentNoと同期する。
+function syncCfxNoInputs(){
+  const v = state.cfxCurrentNo || 1;
+  $('#cfxNo').value = v;
+  $('#cfxCurrentNoInput').value = v;
+}
+function setCfxCurrentNo(v){
+  state.cfxCurrentNo = (!isNaN(v) && v>=1) ? v : 1;
+  syncCfxNoInputs();
+  saveState();
+}
 function prefillCfxDefaults(){
-  let nextNo = 1;
-  while(state.customEffects.some(e=>e.no===nextNo)) nextNo++;
-  if(!$('#cfxNo').dataset.touched) $('#cfxNo').value = nextNo;
+  // 追加要望④：No.は「照明職人用」タブでの手動編集・Cue記録時の自動加算でのみ変化させる
+  // （保存のたびに次の空き番号へ自動で変える処理は行わない）
+  syncCfxNoInputs();
   if(!$('#cfxStep').value) $('#cfxStep').value = 1;
   if(!$('#cfxSec').value) $('#cfxSec').value = 0.1;
 }
+$('#cfxNo').addEventListener('change', ()=> setCfxCurrentNo(parseInt($('#cfxNo').value,10)));
+$('#cfxCurrentNoInput').addEventListener('change', ()=> setCfxCurrentNo(parseInt($('#cfxCurrentNoInput').value,10)));
 $('#cfxSaveBtn').addEventListener('click', ()=>{
-  const no = parseInt($('#cfxNo').value,10) || 1;
+  const no = parseInt($('#cfxNo').value,10) || state.cfxCurrentNo || 1;
   const step = parseInt($('#cfxStep').value,10) || 1;
   const sec = parseFloat($('#cfxSec').value) || 0.1;
   const colorName = currentColorName() || '-';
   const strobeLabel = STROBE_LABEL_CUE[state.strobeMode] || 'なし';
   state.customEffects.push({id:uid(), no, step, sec, colorName, strobeLabel});
-  let nextNo=1; while(state.customEffects.some(e=>e.no===nextNo)) nextNo++;
-  $('#cfxNo').value = nextNo;
+  // 追加要望④：保存時に増加するのは「ステップ」のみ。No.はここでは変えない。
   $('#cfxStep').value = step+1;
   renderCustomFxTable();
   saveState();
+});
+/* ---------- 独自Effect テスト再生（要件⑪⑫） ---------- */
+let cfxPlayTimer = null;
+function playCustomEffectSequence(no, opts){
+  opts = opts || {};
+  if(cfxPlayTimer){ clearTimeout(cfxPlayTimer); cfxPlayTimer = null; }
+  const steps = state.customEffects.filter(e=>e.no===no).sort((a,b)=>a.step-b.step);
+  if(!steps.length) return false;
+  let i = 0;
+  function playNext(){
+    if(i>=steps.length){ cfxPlayTimer = null; return; }
+    const st = steps[i];
+    applyCustomFxToStage(st);
+    i++;
+    if(i<steps.length){
+      const waitSec = opts.useStepSec ? (parseFloat(st.sec)||0.1) : (opts.intervalSec||0.2);
+      cfxPlayTimer = setTimeout(playNext, waitSec*1000);
+    }else{
+      cfxPlayTimer = null;
+    }
+  }
+  playNext();
+  return true;
+}
+$('#cfxTestBtn').addEventListener('click', ()=>{
+  const no = parseInt($('#cfxCurrentNoInput').value,10);
+  const sec = parseFloat($('#cfxTestSecInput').value) || 0.2;
+  if(isNaN(no)){ alert('No.を入力してください。'); return; }
+  const ok = playCustomEffectSequence(no, {intervalSec:sec, useStepSec:false});
+  if(!ok) alert(`No.${no} に登録されたステップが見つかりません。`);
 });
 function renderCustomFxTable(){
   const body = $('#customFxTableBody');
   body.innerHTML='';
   state.customEffects.forEach((e,idx)=>{
     const tr=document.createElement('tr');
+    // 追加要望⑬：照明職人用の表を直接クリックして数値（no/step/sec）を手動編集できるようにする
+    const NUMERIC_FIELDS = {no:'int', step:'int', sec:'float'};
     ['no','step','sec','colorName','strobeLabel'].forEach(f=>{
       const td=document.createElement('td');
       td.textContent = e[f];
+      if(!state.locked && NUMERIC_FIELDS[f]){
+        td.contentEditable = 'true';
+        td.addEventListener('blur', ()=>{
+          const raw = (td.textContent||'').trim();
+          const v = NUMERIC_FIELDS[f]==='int' ? parseInt(raw,10) : parseFloat(raw);
+          if(!isNaN(v)){
+            e[f] = v;
+            saveState();
+          }
+          td.textContent = e[f];
+        });
+      }
       tr.appendChild(td);
     });
     const applyTd=document.createElement('td');
@@ -1446,10 +1523,12 @@ function renderCustomFxTable(){
     applyTd.appendChild(applyBtn);
     tr.appendChild(applyTd);
     const delTd=document.createElement('td');
-    const delBtn=document.createElement('button');
-    delBtn.textContent='✕'; delBtn.className='del-btn';
-    delBtn.addEventListener('click', ()=>{ state.customEffects.splice(idx,1); renderCustomFxTable(); saveState(); });
-    delTd.appendChild(delBtn);
+    if(!state.locked){
+      const delBtn=document.createElement('button');
+      delBtn.textContent='✕'; delBtn.className='del-btn';
+      delBtn.addEventListener('click', ()=>{ state.customEffects.splice(idx,1); renderCustomFxTable(); saveState(); });
+      delTd.appendChild(delBtn);
+    }
     tr.appendChild(delTd);
     body.appendChild(tr);
   });
@@ -1509,6 +1588,19 @@ function updateStagePreviewMedia(){
       videoEl.load && videoEl.load();
       videoEl.play && videoEl.play().catch(()=>{});
     }
+    applyColorFilter();
+    applyStrobeClasses();
+    return;
+  }
+
+  // 追加要望⑩：Effectが「照明職人用」で、まだ色（ステップ）が選択されていない状態のときは
+  // 「Effectなし」用のプレースホルダー画像を表示する
+  if(state.bgColorMode==='on' && state.effectType==='original' && state.effectSubMode==='original' && !currentColorName()){
+    const resolved = resolveAsset('img/choice_backgroundX.jpg');
+    videoEl.classList.add('hidden');
+    imgEl.onerror = ()=>{ imgEl.classList.add('hidden'); };
+    imgEl.onload = ()=>{ imgEl.classList.remove('hidden'); };
+    setMediaWithFade(imgEl, resolved, ()=>{ videoEl.classList.add('hidden'); });
     applyColorFilter();
     applyStrobeClasses();
     return;
@@ -1657,7 +1749,14 @@ const video = $('#rehearsalVideo');
 $('#videoInput').addEventListener('change', e=>{
   const file = e.target.files[0];
   if(!file) return;
-  video.src = URL.createObjectURL(file);
+  const reader = new FileReader();
+  reader.onload = ev=>{
+    // 追加要望⑦：動画タブの動画もdata URLとしてstateに保存し、ZIP出力/読込・再読込後も保持する
+    state.rehearsalVideoSrc = ev.target.result;
+    video.src = state.rehearsalVideoSrc;
+    saveState();
+  };
+  reader.readAsDataURL(file);
 });
 video.addEventListener('timeupdate', ()=>{
   $('#currentVideoTime').textContent = video.currentTime.toFixed(1)+'秒';
@@ -1690,9 +1789,21 @@ function recordCue(sec, source){
   const strobeLabel = (state.effectType==='none' || !state.effectType)
     ? (strobeKey==='static' ? '◯' : 'なし')
     : (STROBE_LABEL_CUE[strobeKey] || 'なし');
-  const effectMark = (state.effectType==='original' && state.effectSubMode!=='none') ? '◯' : '';
+  // 追加要望⑥：Effectが「照明職人用」の場合は◯ではなく、その時点の「No.」を保存する。
+  // 保存後、次回の記録に備えてNo.を1つ増加させる（追加要望④）。
+  let effectMark = '';
+  if(state.effectType==='original'){
+    if(state.effectSubMode==='original'){
+      effectMark = String(state.cfxCurrentNo || 1);
+      state.cfxCurrentNo = (state.cfxCurrentNo || 1) + 1;
+      syncCfxNoInputs();
+    }else if(state.effectSubMode==='existing'){
+      effectMark = '◯';
+    }
+  }
   const stageLabelMap = {anten:'暗転', zensyou:'全照', hansyou:'半照'};
   const cue = {
+    id: uid(),
     sec: (typeof sec==='number') ? sec.toFixed(1) : String(sec||0),
     line: currentLineText(),
     audio: state.currentAudioLabel || '-',
@@ -1716,7 +1827,6 @@ function recordCue(sec, source){
 $('#videoCueBtn').addEventListener('click', ()=> recordCue(video.currentTime, 'video'));
 $('#scriptCueBtn').addEventListener('click', ()=> recordCue(currentTimeSource(), 'script'));
 $('#cueTabAddBtn').addEventListener('click', ()=> recordCue(currentTimeSource(), 'cue'));
-$('#customfxCueBtn').addEventListener('click', ()=> recordCue(currentTimeSource(), 'cue'));
 
 /* ---------- Cue/独自Effect一覧の内容をステージ画面へ上書き反映（要件⑤） ---------- */
 function applyCueToStage(cue){
@@ -1740,6 +1850,12 @@ function applyCueToStage(cue){
       state.effectOn = !!cue.effect;
     }else if(state.effectType==='original'){
       state.effectSubMode = cue.effect ? 'original' : 'none';
+      // 追加要望⑫：Effect欄にNo.（数字）が記録されている場合、そのNo.に登録済みの
+      // ステップ列を、各ステップに記録された秒数どおりに高速で順送り再生する
+      const cueNo = parseInt(cue.effect, 10);
+      if(cue.effect && !isNaN(cueNo)){
+        playCustomEffectSequence(cueNo, {useStepSec:true});
+      }
     }
   }
   const revFadeKey = Object.keys(FADE_LABEL).find(k=>FADE_LABEL[k]===cue.fade);
@@ -1776,54 +1892,132 @@ function applyCustomFxToStage(fx){
 
 const CUE_TBODY_IDS = ['cueTableBody_script','cueTableBody_video','cueTableBody_cue'];
 const CUE_FIELDS = ['sec','line','audio','stage','bg','effect','strobe','fade'];
+const FADER_HEADER_IDS = {cueTableBody_script:'faderHeader_script', cueTableBody_video:'faderHeader_video', cueTableBody_cue:'faderHeader_cue'};
+
+// 追加要望③：ログインしていない場合、Fader列は「順番」列（並び替え用の通常の数字）になる
+function ensureOrderNums(){
+  let changed=false;
+  state.cues.forEach((c,i)=>{ if(c.orderNum==null){ c.orderNum=i+1; changed=true; } });
+  if(changed) saveState();
+}
+function applyOrderNumChange(cue, newVal){
+  cue.orderNum = newVal;
+  let safety=0, dup;
+  while((dup = state.cues.find(o=>o!==cue && o.orderNum===cue.orderNum)) && safety<200){
+    dup.orderNum = dup.orderNum + 1;
+    safety++;
+  }
+  state.cues.sort((a,b)=>(a.orderNum||0)-(b.orderNum||0));
+}
+
+// 追加要望⑤：本番モードでのCue反映状況（グレー表示済みか）の管理
+function ensureCueIds(){ state.cues.forEach(c=>{ if(!c.id) c.id = uid(); }); }
+function resetGameReflection(){ gameReflectedIds = new Set(); renderCueTable(); }
+function isReflected(cue){ return !!(cue.id && gameReflectedIds.has(cue.id)); }
+function markReflected(cue){ if(cue.id) gameReflectedIds.add(cue.id); }
+function findNextCueByDigit(key){
+  ensureCueIds();
+  return state.cues.find(c=> !isReflected(c) && c.fader===key);
+}
+function findNextCueAny(){
+  ensureCueIds();
+  return state.cues.find(c=> !isReflected(c));
+}
+function reflectCueForGame(cue){
+  if(!cue) return;
+  applyCueToStage(cue);
+  markReflected(cue);
+  renderCueTable();
+}
+
 function renderCueTable(){
+  ensureCueIds();
   // 表示前に、fader未設定の行があれば連番を振っておく
   if(state.cues.some(c=>!c.fader)) reassignFaderFrom(0);
+  if(!state.loggedIn) ensureOrderNums();
+
   CUE_TBODY_IDS.forEach(id=>{
     const body = document.getElementById(id);
     if(!body) return;
+
+    // 追加要望③：ログイン状態に応じてヘッダー表示を「Fader」⇔「順番」に切り替える
+    const headerEl = document.getElementById(FADER_HEADER_IDS[id]);
+    if(headerEl) headerEl.textContent = state.loggedIn ? 'Fader' : '順番';
+
     body.innerHTML='';
     state.cues.forEach((c,idx)=>{
       const tr = document.createElement('tr');
       tr.className='cue-row';
+      // 追加要望⑤：本番モードで反映済みの行はグレー表示にする
+      if(state.locked && isReflected(c)) tr.classList.add('cue-row-reflected');
 
-      // 要件⑦：Fader列（編集可能。編集すると以降の行が自動で1つずつズレて再割当てされる）
+      // 追加要望②③：本番モード中は編集不可。ログインしていない場合は「順番」として
+      // 編集可能な連番にし、編集後は自動で並び替え・重複時は既存側を+1する。
       const faderTd = document.createElement('td');
-      faderTd.textContent = c.fader || '';
-      faderTd.contentEditable = 'true';
       faderTd.className = 'fader-cell';
-      faderTd.addEventListener('blur', ()=>{
-        const v = (faderTd.textContent||'').trim();
-        if(DIGIT_CYCLE.includes(v)){
-          reassignFaderFrom(idx, v);
-          renderCueTable();
-          saveState();
-        }else{
-          faderTd.textContent = c.fader || '';
-        }
-      });
+      if(state.locked){
+        faderTd.textContent = c.fader || '';
+        faderTd.contentEditable = 'false';
+      }else if(state.loggedIn){
+        faderTd.textContent = c.fader || '';
+        faderTd.contentEditable = 'true';
+        faderTd.addEventListener('blur', ()=>{
+          const v = (faderTd.textContent||'').trim();
+          if(DIGIT_CYCLE.includes(v)){
+            reassignFaderFrom(idx, v);
+            renderCueTable();
+            saveState();
+          }else{
+            faderTd.textContent = c.fader || '';
+          }
+        });
+      }else{
+        faderTd.textContent = c.orderNum!=null ? String(c.orderNum) : String(idx+1);
+        faderTd.contentEditable = 'true';
+        faderTd.addEventListener('blur', ()=>{
+          const v = parseInt((faderTd.textContent||'').trim(),10);
+          if(!isNaN(v) && v>0){
+            applyOrderNumChange(c, v);
+            renderCueTable();
+            saveState();
+          }else{
+            faderTd.textContent = c.orderNum!=null ? String(c.orderNum) : String(idx+1);
+          }
+        });
+      }
       tr.appendChild(faderTd);
 
       CUE_FIELDS.forEach(f=>{
         const td = document.createElement('td');
         td.textContent = c[f];
-        td.contentEditable = 'true';
-        td.addEventListener('blur', ()=>{ c[f]=td.textContent; saveState(); });
+        if(!state.locked){
+          td.contentEditable = 'true';
+          td.addEventListener('blur', ()=>{ c[f]=td.textContent; saveState(); });
+        }
         tr.appendChild(td);
       });
       const applyTd = document.createElement('td');
       const applyBtn = document.createElement('button');
       applyBtn.textContent='反映'; applyBtn.className='apply-btn';
-      applyBtn.addEventListener('click', ev=>{ ev.stopPropagation(); applyCueToStage(c); });
+      applyBtn.addEventListener('click', ev=>{
+        ev.stopPropagation();
+        if(state.locked){ reflectCueForGame(c); } else { applyCueToStage(c); }
+      });
       applyTd.appendChild(applyBtn);
       tr.appendChild(applyTd);
       const delTd = document.createElement('td');
-      const delBtn = document.createElement('button');
-      delBtn.textContent='✕'; delBtn.className='del-btn';
-      delBtn.addEventListener('click', ev=>{ ev.stopPropagation(); state.cues.splice(idx,1); reassignFaderFrom(0); renderCueTable(); saveState(); });
-      delTd.appendChild(delBtn);
+      if(!state.locked){
+        const delBtn = document.createElement('button');
+        delBtn.textContent='✕'; delBtn.className='del-btn';
+        delBtn.addEventListener('click', ev=>{ ev.stopPropagation(); state.cues.splice(idx,1); reassignFaderFrom(0); renderCueTable(); saveState(); });
+        delTd.appendChild(delBtn);
+      }
       tr.appendChild(delTd);
-      tr.addEventListener('click', ()=>{ video.currentTime = parseFloat(c.sec)||0; });
+      tr.addEventListener('click', ()=>{
+        // 追加要望⑤：本番モード中は行クリックでそのCueを反映（グレー行も再反映可能）
+        if(state.locked){ reflectCueForGame(c); }
+        else{ video.currentTime = parseFloat(c.sec)||0; }
+      });
       body.appendChild(tr);
     });
   });
@@ -1911,6 +2105,8 @@ async function exportStateAsZip(){
     track.src = await externalizeToZip(zip, counterRef, track.src, 'mp3');
   }
   cloned.stageVideoOverride = await externalizeToZip(zip, counterRef, cloned.stageVideoOverride, 'mp4');
+  // 追加要望⑦：動画タブの動画もZIPに同梱する
+  cloned.rehearsalVideoSrc = await externalizeToZip(zip, counterRef, cloned.rehearsalVideoSrc, 'mp4');
 
   zip.file('data.json', JSON.stringify(cloned, null, 2));
   const blob = await zip.generateAsync({type:'blob'});
@@ -1942,6 +2138,8 @@ async function importStateFromZip(file){
   }
   for(const track of (json.audioSources||[])) track.src = await resolveZipAsset(zip, track.src);
   json.stageVideoOverride = await resolveZipAsset(zip, json.stageVideoOverride);
+  // 追加要望⑦：動画タブの動画を復元する
+  json.rehearsalVideoSrc = await resolveZipAsset(zip, json.rehearsalVideoSrc);
 
   json.adminAssets = json.adminAssets || {};
   const paths = json._adminAssetPaths || [];
@@ -1984,134 +2182,33 @@ $('#printBtn').addEventListener('click', ()=>{
 });
 
 /* ============================================================
-   要件①②：本番モード＝ゲームモード
-   Cue一覧のFader列で指定された数字（キーボード）、または②の大型ボタン（タップ）を
-   秒数の0.3秒以内の誤差で入力するリズムゲーム。フェードイン／フェードアウトのCueは
-   長押しで再現する。全Cue入力後、3秒間フリーズしてからミス一覧をポップアップ表示する。
+   追加要望①②⑤：本番モード
+   Cue一覧で反映する順序は上から順（state.cues の並び順）。数字キーはFader列の
+   数字と一致する、まだグレー表示になっていない最初のCueを反映する。縦画面用の
+   大型ボタン（#gameHitBtn）はキーボード代わりとして、まだグレー表示になっていない
+   最初のCueを反映する。一度反映した行はグレー表示になるが、グレーの行をクリック
+   すれば再度反映でき、その次からは通常どおりグレーでない行から順に反映される。
    ============================================================ */
-let gameActive=false, gameIndex=0, gameMisses=[], gameMonitorHandle=null, gameFinishTimer=null;
-const gameKeyPressStart = {};
-
-function sortedGameCues(){
-  return state.cues.slice().sort((a,b)=>parseFloat(a.sec)-parseFloat(b.sec));
-}
+let gameReflectedIds = new Set();
 function updateGameHitButtonVisibility(){
   const show = state.locked && state.cues.length>0;
   $('#gameHitBtn').classList.toggle('game-active', show);
 }
-function resetGameRound(){
-  gameIndex = 0;
-  gameMisses = [];
-  if(gameFinishTimer){ clearTimeout(gameFinishTimer); gameFinishTimer=null; }
-  $('#gameResultModal').classList.add('hidden');
-}
-function startGameMonitor(){
-  if(!state.locked || state.cues.length===0) return;
-  gameActive = true;
-  updateGameHitButtonVisibility();
-  if(gameMonitorHandle) clearInterval(gameMonitorHandle);
-  gameMonitorHandle = setInterval(gameTick, 100);
-}
-function stopGameMonitor(){
-  gameActive = false;
-  if(gameMonitorHandle){ clearInterval(gameMonitorHandle); gameMonitorHandle=null; }
-}
-function gameElapsedSec(){ return (state.stopwatch.elapsed||0)/1000; }
-function gameTick(){
-  if(!gameActive) return;
-  const cues = sortedGameCues();
-  if(gameIndex>=cues.length){ finishGameIfDue(); return; }
-  const cue = cues[gameIndex];
-  const target = parseFloat(cue.sec)||0;
-  if(gameElapsedSec() > target + GAME_MISS_WINDOW_SEC){
-    // 許容時間を過ぎても入力がなければ「未入力」のミスとして記録し、次のCueへ進む
-    gameMisses.push({cue, errorSec:null});
-    gameIndex++;
-  }
-}
-function finishGameIfDue(){
-  if(gameFinishTimer) return;
-  gameFinishTimer = setTimeout(()=>{
-    stopGameMonitor();
-    showGameResult();
-    gameFinishTimer = null;
-  }, 3000); // 要件①：全Cue入力完了後、3秒間フリーズしてからリザルト表示
-}
-function handleGameInput(pressDurationMs){
-  if(!gameActive) return;
-  const cues = sortedGameCues();
-  if(gameIndex>=cues.length) return;
-  const cue = cues[gameIndex];
-  const target = parseFloat(cue.sec)||0;
-  const errorSec = gameElapsedSec() - target;
-  const isFadeCue = cue.fade==='フェードイン' || cue.fade==='フェードアウト';
-  // フェードCueは長押しで再現する（規定時間未満の短いタップは無効入力として無視する）
-  if(isFadeCue && pressDurationMs < GAME_LONGPRESS_MIN_MS) return;
-  if(Math.abs(errorSec) > GAME_HIT_TOLERANCE_SEC){
-    gameMisses.push({cue, errorSec});
-  }
-  gameIndex++;
-  if(gameIndex>=cues.length) finishGameIfDue();
-}
 document.addEventListener('keydown', e=>{
-  if(!gameActive || e.repeat) return;
+  if(!state.locked || e.repeat) return;
   const key = e.key;
   if(!DIGIT_CYCLE.includes(key)) return;
-  const cue = sortedGameCues()[gameIndex];
-  if(!cue || cue.fader!==key) return; // Fader列で指定された数字のみ有効
-  if(!(key in gameKeyPressStart)) gameKeyPressStart[key] = performance.now();
+  const active = document.activeElement;
+  if(active && (active.isContentEditable || active.tagName==='INPUT' || active.tagName==='TEXTAREA')) return;
+  const cue = findNextCueByDigit(key);
+  if(cue) reflectCueForGame(cue);
 });
-document.addEventListener('keyup', e=>{
-  if(!gameActive) return;
-  const key = e.key;
-  if(!(key in gameKeyPressStart)) return;
-  const dur = performance.now() - gameKeyPressStart[key];
-  delete gameKeyPressStart[key];
-  handleGameInput(dur);
-});
-let gameBtnPressStart = null;
-const gameHitBtnEl = $('#gameHitBtn');
-gameHitBtnEl.addEventListener('pointerdown', e=>{
-  if(!gameActive) return;
+$('#gameHitBtn').addEventListener('click', e=>{
   e.preventDefault();
-  gameBtnPressStart = performance.now();
-  gameHitBtnEl.classList.add('pressed');
+  if(!state.locked) return;
+  const cue = findNextCueAny();
+  if(cue) reflectCueForGame(cue);
 });
-['pointerup','pointercancel','pointerleave'].forEach(evt=>{
-  gameHitBtnEl.addEventListener(evt, ()=>{
-    if(gameBtnPressStart==null) return;
-    const dur = performance.now() - gameBtnPressStart;
-    gameBtnPressStart = null;
-    gameHitBtnEl.classList.remove('pressed');
-    handleGameInput(dur);
-  });
-});
-function showGameResult(){
-  const total = sortedGameCues().length;
-  const missCount = gameMisses.length;
-  $('#gameResultSummary').textContent = `全${total}Cue中 ミス ${missCount}件`;
-  const listEl = $('#gameResultList');
-  if(missCount===0){
-    listEl.innerHTML = '<p>ミスなし！お見事です。</p>';
-  }else{
-    const rows = gameMisses.map(m=>{
-      const cue = m.cue;
-      let errDisplay;
-      if(m.errorSec==null){
-        errDisplay = '未入力';
-      }else if(cue.source==='script'){
-        // 要件①：台本由来のCueは誤差秒数ではなく、記録されている該当行を表示する
-        errDisplay = cue.line ? cue.line : ((m.errorSec>=0?'+':'')+m.errorSec.toFixed(2)+'秒');
-      }else{
-        errDisplay = (m.errorSec>=0?'+':'')+m.errorSec.toFixed(2)+'秒';
-      }
-      return `<tr class="miss-row"><td>${cue.sec}</td><td>${cue.fader||''}</td><td>${(cue.line||'').slice(0,20)}</td><td>${errDisplay}</td></tr>`;
-    }).join('');
-    listEl.innerHTML = `<table><thead><tr><th>秒数</th><th>Fader</th><th>セリフ</th><th>誤差／場所</th></tr></thead><tbody>${rows}</tbody></table>`;
-  }
-  $('#gameResultModal').classList.remove('hidden');
-}
-$('#gameResultCloseBtn').addEventListener('click', ()=>{ $('#gameResultModal').classList.add('hidden'); });
 
 /* ============================================================
    自動保存
@@ -2140,3 +2237,4 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   updateLoginUI();
   updateSWDisplay();
 });
+

@@ -175,7 +175,7 @@ body.locked .cue-table th:nth-child(n+5),
 body.locked .cue-table td:nth-child(n+5){display:none;}
 body.locked .cue-mirror-title{margin-top:0;}
 
-/* ---------- ゲームモード用の大型入力ボタン（要件②） ---------- */
+/* ---------- ゲームモード用の大型入力ボタン（要件②→追加要望①：縦画面のみ表示） ---------- */
 #gameHitBtn{
   display:none;
   margin-left:auto;
@@ -185,15 +185,16 @@ body.locked .cue-mirror-title{margin-top:0;}
   cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,.3);
   touch-action:none;user-select:none;
 }
-body.locked #gameHitBtn.game-active{display:block;}
+@media (orientation:portrait){
+  body.locked #gameHitBtn.game-active{display:block;}
+}
 #gameHitBtn.pressed{filter:brightness(1.25);}
 .stage-item-add{position:relative;}
 
-/* ---------- ゲーム結果ポップアップ ---------- */
-.game-result-list{max-height:320px;overflow:auto;font-size:12px;margin:10px 0;}
-.game-result-list table{width:100%;border-collapse:collapse;}
-.game-result-list th,.game-result-list td{border:1px solid var(--border);padding:4px;text-align:center;}
-.game-result-list tr.miss-row{background:rgba(230,57,70,.12);}
+/* ---------- 本番モードで反映済みのCue（追加要望⑤） ---------- */
+.cue-table tr.cue-row.cue-row-reflected{background:#bdbdbd;color:#333;}
+.cue-table tr.cue-row.cue-row-reflected:hover{background:#a9a9a9;color:#222;}
+body.dark-mode .cue-table tr.cue-row.cue-row-reflected{background:#4a4a4a;color:#ddd;}
 
 /* ---------- ストロボ色クロスフェード用レイヤー（要件⑩） ---------- */
 .stage-color-filter2{position:absolute;inset:0;mix-blend-mode:multiply;opacity:0;pointer-events:none;}

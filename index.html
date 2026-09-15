@@ -130,16 +130,6 @@
   </div>
 </div>
 
-<!-- ==================== ゲーム結果モーダル ==================== -->
-<div id="gameResultModal" class="modal-overlay hidden">
-  <div class="modal-box">
-    <h3>🎮 ゲーム結果</h3>
-    <p id="gameResultSummary"></p>
-    <div id="gameResultList" class="game-result-list"></div>
-    <button id="gameResultCloseBtn" class="primary-btn">閉じる</button>
-  </div>
-</div>
-
 <!-- ==================== ヘッダー ==================== -->
 <header id="mainHeader">
   <div class="header-left">
@@ -223,8 +213,6 @@
               <button id="tokakiBtn">ト書き行</button>
               <button id="autoMatchBtn">話者割り当て</button>
               <button id="speakRowBtn">🔊 読み上げ</button>
-            </div>
-            <div class="toolbar-row audio-tracks-toolbar">
               <label class="file-btn">音源追加<input type="file" id="scriptAudioAddInput" accept="audio/*" multiple hidden></label>
             </div>
             <div id="audioTracksList" class="audio-tracks-list"></div>
@@ -240,7 +228,7 @@
         <div class="game-cue-panel">
           <h3 class="cue-mirror-title">Cue一覧</h3>
           <table class="cue-table">
-            <thead><tr><th>Fader</th><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th><th>反映</th><th></th></tr></thead>
+            <thead><tr><th id="faderHeader_script">Fader</th><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th><th>反映</th><th></th></tr></thead>
             <tbody id="cueTableBody_script"></tbody>
           </table>
         </div>
@@ -260,7 +248,7 @@
         <div class="game-cue-panel">
           <h3 class="cue-mirror-title">Cue一覧</h3>
           <table class="cue-table">
-            <thead><tr><th>Fader</th><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th><th>反映</th><th></th></tr></thead>
+            <thead><tr><th id="faderHeader_video">Fader</th><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th><th>反映</th><th></th></tr></thead>
             <tbody id="cueTableBody_video"></tbody>
           </table>
         </div>
@@ -272,14 +260,19 @@
         <button id="cueTabAddBtn" class="cue-record-btn">📍 Cue記録</button>
       </div>
       <table class="cue-table">
-        <thead><tr><th>Fader</th><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th><th>反映</th><th></th></tr></thead>
+        <thead><tr><th id="faderHeader_cue">Fader</th><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th><th>反映</th><th></th></tr></thead>
         <tbody id="cueTableBody_cue"></tbody>
       </table>
     </div>
 
     <div id="tab-customfx" class="tab-pane">
-      <button id="customfxCueBtn" class="cue-record-btn">📍 Cue記録</button>
-      <p class="hint">高速切り替えが「照明職人用」の場合に、ステージ画面の保存操作で追加された記録一覧です。</p>
+      <div class="cue-capture-row" id="customfxNoRow">
+        <label>No.<input type="number" id="cfxCurrentNoInput" min="1" step="1" style="width:60px;"></label>
+        <button id="cfxTestBtn">▶ テスト</button>
+        <label>秒数<input type="number" id="cfxTestSecInput" min="0.05" step="0.05" value="0.2" style="width:70px;"></label>
+      </div>
+      <p class="hint">「No.」は台本／動画／Cueタブの📍Cue記録を押すたび（Effectが照明職人用の場合）に自動で1つ増加します。テストボタンで、指定したNo.に登録済みのステップを指定秒数間隔で高速に順送り再生できます。</p>
+      <p class="hint">高速切り替えが「照明職人用」の場合に、ステージ画面の保存操作で追加された記録一覧です。表は直接クリックして数値を書き換えられます。</p>
       <table class="cue-table">
         <thead><tr><th>No.</th><th>ステップ</th><th>秒数</th><th>背景色</th><th>ストロボ</th><th>反映</th><th></th></tr></thead>
         <tbody id="customFxTableBody"></tbody>
