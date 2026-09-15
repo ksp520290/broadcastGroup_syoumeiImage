@@ -95,7 +95,8 @@ body.cast-open #versionMemoBar{margin-left:340px;width:calc(100% - 340px);}
 .tab-btn.active{background:var(--accent);color:#fff;}
 .tab-pane{display:none;}
 .tab-pane.active{display:block;}
-.cue-record-btn{background:var(--accent);color:#fff;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;margin-bottom:6px;}
+/* 要件⑥：Cue記録ボタンは黄色地に濃色文字で目立たせる */
+.cue-record-btn{background:#FFD166;color:#222;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;margin-bottom:6px;font-weight:bold;}
 
 /* ---------- 台本ツールバー（追従） ---------- */
 .sticky-toolbar{position:sticky;top:0;z-index:20;background:var(--panel);padding:6px 0 8px 0;border-bottom:1px solid var(--border);}
@@ -151,16 +152,61 @@ body.dark-mode .script-editor *{color:inherit;}
 
 .stage-item-add{display:flex;gap:6px;flex-wrap:wrap;}
 
+/* ---------- 音源トラック（要件④：複数音源） ---------- */
+.audio-tracks-list{display:flex;flex-direction:column;gap:4px;margin-bottom:4px;}
+.audio-track-row{display:flex;align-items:center;gap:6px;font-size:11px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:4px 6px;flex-wrap:wrap;}
+.audio-track-row .audio-track-name{font-weight:bold;min-width:22px;text-align:center;}
+.audio-track-row button{font-size:11px;padding:3px 6px;border:1px solid var(--border);background:var(--panel);color:var(--fg);border-radius:4px;cursor:pointer;}
+.audio-track-row input[type=text].audio-track-name-input{width:70px;font-size:11px;padding:2px;}
+.audio-track-row input[type=range]{flex:1;min-width:100px;}
+.audio-track-row .audio-track-time{white-space:nowrap;}
+.audio-track-row.audio-track-current{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);}
+
+/* ---------- ゲームモード（本番モード）：レイアウト圧縮とCue一覧の列制御（要件⑪） ---------- */
+.game-mode-flex{display:block;}
+body.locked .game-mode-flex{display:flex;gap:8px;align-items:flex-start;}
+body.locked .game-mode-flex .game-primary{flex:0 0 70%;max-width:70%;min-width:0;}
+body.locked .game-mode-flex .game-cue-panel{flex:0 0 29%;max-width:29%;min-width:0;overflow-x:hidden;}
+.game-cue-panel .cue-table{table-layout:fixed;width:100%;}
+body.locked .game-cue-panel .cue-table th,
+body.locked .game-cue-panel .cue-table td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:3px 2px;font-size:10px;}
+/* Fader,秒数,セリフ,音源 の4列のみ表示し、それ以外（舞台以降・反映・削除）は本番モードで非表示にする */
+body.locked .cue-table th:nth-child(n+5),
+body.locked .cue-table td:nth-child(n+5){display:none;}
+body.locked .cue-mirror-title{margin-top:0;}
+
+/* ---------- ゲームモード用の大型入力ボタン（要件②） ---------- */
+#gameHitBtn{
+  display:none;
+  margin-left:auto;
+  width:30vw;height:15vh;
+  font-size:18px;font-weight:bold;
+  background:var(--accent);color:#fff;border:none;border-radius:12px;
+  cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,.3);
+  touch-action:none;user-select:none;
+}
+body.locked #gameHitBtn.game-active{display:block;}
+#gameHitBtn.pressed{filter:brightness(1.25);}
+.stage-item-add{position:relative;}
+
+/* ---------- ゲーム結果ポップアップ ---------- */
+.game-result-list{max-height:320px;overflow:auto;font-size:12px;margin:10px 0;}
+.game-result-list table{width:100%;border-collapse:collapse;}
+.game-result-list th,.game-result-list td{border:1px solid var(--border);padding:4px;text-align:center;}
+.game-result-list tr.miss-row{background:rgba(230,57,70,.12);}
+
+/* ---------- ストロボ色クロスフェード用レイヤー（要件⑩） ---------- */
+.stage-color-filter2{position:absolute;inset:0;mix-blend-mode:multiply;opacity:0;pointer-events:none;}
+
 /* ---------- 本番ロックモード ---------- */
-body.locked .editable-only, body.locked input, body.locked .cast-add-row, body.locked .stage-item-add{
+body.locked .editable-only, body.locked input, body.locked .cast-add-row, body.locked .stage-item-add > .file-btn, body.locked #stageVideoDirectBtn{
   display:none !important;
 }
 body.locked .script-editor{border:none;}
 
 @keyframes strobeFlash{0%,100%{opacity:.7}50%{opacity:0}}
-.stage-preview.strobing .stage-color-filter{animation:strobeFlash .15s infinite;}
 @keyframes strobeSpin{from{filter:hue-rotate(0deg);}to{filter:hue-rotate(360deg);}}
-.stage-preview.strobe-kurukuru .stage-bg-img,.stage-preview.strobe-kurukuru .stage-color-filter{animation:strobeSpin 1.2s linear infinite;}
+.stage-preview.strobe-kurukuru .stage-bg-img,.stage-preview.strobe-kurukuru .stage-color-filter,.stage-preview.strobe-kurukuru .stage-color-filter2{animation:strobeSpin 1.2s linear infinite;}
 
 /* ---------- 印刷 ---------- */
 @media print{

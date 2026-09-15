@@ -44,14 +44,27 @@ function textColorFor(hex){
 const ROOT_ADMIN = {id:'syoumei', pass:'最高！'};
 
 const STAGE_FOLDER = {anten:'暗転', zensyou:'全照', hansyou:'半照'};
-const STROBE_FOLDER = {none:'ストロボ✖', static:'ストロボ静止', chikachika:'ストロボ独立', kurukuru:'ストロボくるくる'};
-const STROBE_LABEL_CUE = {static:'◯', chikachika:'独立', kurukuru:'Effect1', none:'なし'};
-const STROBE_BTN_LABEL = {static:'ストロボ静止', chikachika:'ストロボ独立', kurukuru:'ストロボクルクル', none:'ストロボ✖️'};
-const EXISTING_STROBE_CYCLE = ['static','chikachika','kurukuru','none'];
-const ORIGINAL_STROBE_CYCLE = ['none','static','chikachika','kurukuru'];
-const EFFECT_SUBMODE_LABEL = {none:'Effectなし', existing:'既存Effect', original:'独自Effect'};
+// 要件⑭：「ストロボ独立」（chikachika）は選択肢として完全に削除
+const STROBE_FOLDER = {none:'ストロボ✖', static:'ストロボ静止', kurukuru:'ストロボくるくる'};
+const STROBE_LABEL_CUE = {static:'◯', kurukuru:'Effect1', none:'なし'};
+const STROBE_BTN_LABEL = {static:'ストロボ静止', kurukuru:'ストロボクルクル', none:'ストロボ✖️'};
+const EXISTING_STROBE_CYCLE = ['static','kurukuru','none'];
+const ORIGINAL_STROBE_CYCLE = ['none','static','kurukuru'];
+// 要件③：ストロボ静止／ストロボくるくるは色別ファイルではなく単一ファイルを参照し、
+// 色は配役色トグルと同じ色フィルター（オーバーレイ）で表現する
+const STROBE_SINGLE_FILE = {static:'静止.png', kurukuru:'くるくる.png'};
+// 要件⑥：ラベル名称変更（内部キー既存/独自はそのまま、表示名のみ変更）
+const EFFECT_SUBMODE_LABEL = {none:'Effectなし', existing:'ミラーボール', original:'照明職人用'};
 const FADE_CYCLE = ['none','in','out'];
 const FADE_LABEL = {none:'フェードなし', in:'フェードイン', out:'フェードアウト'};
+// 要件⑦：Cue一覧のFader列に割り当てる循環（1→2→…→9→0→1…）
+const DIGIT_CYCLE = ['1','2','3','4','5','6','7','8','9','0'];
+// 要件①②：本番モード＝ゲームモードの判定用許容誤差・長押し閾値
+const GAME_HIT_TOLERANCE_SEC = 0.3;
+const GAME_MISS_WINDOW_SEC = 2.0;
+const GAME_LONGPRESS_MIN_MS = 400;
+// 要件⑩：ストロボくるくるの色変化クロスフェード時間（秒）
+const KURUKURU_CROSSFADE_SEC = 1;
 
 let state = {
   initDone:false,
@@ -68,7 +81,7 @@ let state = {
   cast:[],                 // {id,name,actor,mic,color,edit}
   scriptHTML:'',
   gdocUrl:'',
-  cues:[],                  // {sec,line,audio,stage,bg,effect,strobe,fade}
+  cues:[],                  // {sec,line,audio,stage,bg,effect,strobe,fade,fader,source,stageItemsSnapshot}
   stageState:'zensyou',
   activeColorIndex:null,    // COLOR_PALETTE のインデックス
   strobeOn:false,           // effectType==='none' の場合の単純ON/OFF
@@ -84,7 +97,10 @@ let state = {
   stopwatch:{elapsed:0,running:false},
   adminAssets:{},            // { "img/xxx.png": "data:...", "mov/xxx.mov": "data:..." }
   currentAudioLabel:'-',
-  audioSourceCount:0
+  audioSourceCount:0,
+  // 要件④：音源を複数管理する（表示順=配列順、name は①②③…を自動採番）
+  audioSources:[],           // {id,name,src,startOffset}
+  currentAudioTrackId:null   // 直近に再生／使用したトラック（Cue記録時の「音源」欄に反映）
 };
 
 let swInterval=null, swStart=0;
@@ -466,10 +482,15 @@ function populateAdminColorSelect(){
     const opt=document.createElement('option'); opt.value=c.name; opt.textContent=c.name; sel.appendChild(opt);
   });
 }
+// 要件③：ストロボ静止／ストロボくるくるは色別ではなく単一ファイル（静止.png／くるくる.png）
+const ADMIN_SINGLE_FILE_MAP = {'ストロボ静止':'静止.png','ストロボくるくる':'くるくる.png'};
 function updateAdminAssetPathPreview(){
   const kind=$('#adminAssetKind').value, stage=$('#adminAssetStage').value, strobe=$('#adminAssetStrobe').value, color=$('#adminAssetColor').value;
   const ext = kind==='mov' ? 'mov' : 'png';
-  $('#adminAssetPathPreview').textContent = `保存先: ${kind}/${stage}/${strobe}/${color}.${ext}`;
+  const singleFile = kind!=='mov' && ADMIN_SINGLE_FILE_MAP[strobe];
+  $('#adminAssetColor').disabled = !!singleFile;
+  const fileName = singleFile || `${color}.${ext}`;
+  $('#adminAssetPathPreview').textContent = `保存先: ${kind}/${stage}/${strobe}/${fileName}`;
 }
 ['adminAssetKind','adminAssetStage','adminAssetStrobe','adminAssetColor'].forEach(id=>{
   document.getElementById(id).addEventListener('change', updateAdminAssetPathPreview);
@@ -479,7 +500,9 @@ $('#adminAssetFile').addEventListener('change', e=>{
   if(!file) return;
   const kind=$('#adminAssetKind').value, stage=$('#adminAssetStage').value, strobe=$('#adminAssetStrobe').value, color=$('#adminAssetColor').value;
   const ext = kind==='mov' ? 'mov' : 'png';
-  const path = `${kind}/${stage}/${strobe}/${color}.${ext}`;
+  const singleFile = kind!=='mov' && ADMIN_SINGLE_FILE_MAP[strobe];
+  const fileName = singleFile || `${color}.${ext}`;
+  const path = `${kind}/${stage}/${strobe}/${fileName}`;
   const reader = new FileReader();
   reader.onload = ev=>{
     state.adminAssets[path] = ev.target.result;
@@ -542,6 +565,8 @@ function applyAllSettingsToUI(){
   setupGdocAutoSync();
   updateCustomFxTabVisibility();
   $('#stageVideoDirectBtn').classList.toggle('active-highlight', !!state.stageVideoOverride);
+  renderAudioTracks();
+  updateGameHitButtonVisibility();
 }
 
 function updateCustomFxTabVisibility(){
@@ -563,6 +588,12 @@ $('#darkModeToggle').addEventListener('click', ()=>{
 });
 $('#lockModeToggle').addEventListener('click', ()=>{
   state.locked = !state.locked;
+  if(!state.locked){
+    stopGameMonitor();
+    $('#gameResultModal').classList.add('hidden');
+  }else{
+    resetGameRound();
+  }
   applyAllSettingsToUI();
   saveState();
 });
@@ -587,10 +618,16 @@ $('#swStartBtn').addEventListener('click', ()=>{
     state.stopwatch.elapsed = performance.now() - swStart;
     updateSWDisplay();
   }, 100);
+  // 要件①：本番モード（ゲームモード）ではストップウォッチ開始と同時にゲーム判定を開始する
+  if(state.locked && state.cues.length>0){
+    if(state.stopwatch.elapsed<50) resetGameRound();
+    startGameMonitor();
+  }
 });
 $('#swStopBtn').addEventListener('click', ()=>{
   state.stopwatch.running = false;
   clearInterval(swInterval);
+  stopGameMonitor();
   saveState();
 });
 $('#swResetBtn').addEventListener('click', ()=>{
@@ -598,6 +635,7 @@ $('#swResetBtn').addEventListener('click', ()=>{
   clearInterval(swInterval);
   state.stopwatch.elapsed = 0;
   updateSWDisplay();
+  resetGameRound();
   saveState();
 });
 
@@ -820,8 +858,31 @@ $('#tokakiBtn').addEventListener('click', ()=>{
   }
 });
 
-// 話者自動マッチング：「話者名(、・/区切りで複数可)：セリフ」形式を検出
+// 要件⑧：段落内に改行（<br>）が含まれる場合、その改行ごとに独立した「1行」として
+// 扱えるよう、あらかじめ別々の段落要素へ分割しておく（話者割り当て・読み上げ共通で使用）
+function normalizeScriptLines(){
+  const children = Array.from(scriptEditor.children);
+  children.forEach(el=>{
+    if(el.nodeType!==1) return;
+    if(!/<br\s*\/?>/i.test(el.innerHTML)) return;
+    const parts = el.innerHTML.split(/<br\s*\/?>/i);
+    if(parts.length<=1) return;
+    const frag = document.createDocumentFragment();
+    parts.forEach(part=>{
+      const newEl = document.createElement(el.tagName);
+      newEl.innerHTML = part;
+      frag.appendChild(newEl);
+    });
+    el.replaceWith(frag);
+  });
+}
+
+// 話者自動マッチング→話者割り当て：「話者名(、・/区切りで複数可)：セリフ」形式を検出
+// 要件⑧：改行で話者が切り替わっている場合に誤って複数話者扱いにしないよう、
+// マッチング対象は必ず「その行（1つの要素）」単位に正規化してから判定する
 $('#autoMatchBtn').addEventListener('click', ()=>{
+  normalizeScriptLines();
+  state.scriptHTML = scriptEditor.innerHTML;
   const lines = scriptEditor.querySelectorAll('p, div');
   const targets = lines.length ? Array.from(lines) : [scriptEditor];
   let matchedCount = 0;
@@ -856,11 +917,14 @@ $('#autoMatchBtn').addEventListener('click', ()=>{
   });
   state.scriptHTML = scriptEditor.innerHTML;
   saveState();
-  alert(`${matchedCount} 行を自動マッチングしました。`);
+  alert(`${matchedCount} 行を割り当てました。`);
 });
 
 /* ---------- 読み上げ ---------- */
 function getScriptLines(){
+  // 要件⑧：読み上げも改行ごとに独立した行として扱う
+  normalizeScriptLines();
+  state.scriptHTML = scriptEditor.innerHTML;
   const children = Array.from(scriptEditor.children).filter(el=>el.nodeType===1);
   return children.length ? children : [scriptEditor];
 }
@@ -933,11 +997,12 @@ $('#speakRowBtn').addEventListener('click', ()=>{
   }
   if(queue.length===0){ alert('読み上げ可能な行がありません（マイク割当・ト書き設定・選択範囲をご確認ください）。'); return; }
 
-  // 要件⑧：音声合成の準備中は「音声生成中」と表示する
+  // 音声合成の準備中は「音声生成中」と表示する
   isReading = true;
   $('#speakRowBtn').textContent = '音声生成中';
   let started = false;
-  queue.forEach((item, i)=>{
+
+  function buildUtterance(item){
     const u = new SpeechSynthesisUtterance(item.text);
     u.lang='ja-JP';
     const params = voiceParamsForLine(item.line);
@@ -945,14 +1010,28 @@ $('#speakRowBtn').addEventListener('click', ()=>{
     u.rate = params.rate;
     const voice = findJaVoice(params.gender);
     if(voice) u.voice = voice;
+    return u;
+  }
+
+  // 要件⑨：全行を最初にまとめて読み込むのではなく、話者（行）ごとに1つずつ読み込んで再生する。
+  // 現在の行を再生開始したタイミングで、次の行の読み込み（SpeechSynthesisUtterance生成）を開始する
+  // ことで、ストリーミング再生のような逐次進行にする。
+  function playSequential(idx, preparedUtterance){
+    if(idx>=queue.length){
+      isReading=false; $('#speakRowBtn').textContent='🔊 読み上げ';
+      return;
+    }
+    const item = queue[idx];
+    const u = preparedUtterance || buildUtterance(item);
+    let nextPrepared = null;
     u.onstart = ()=>{
       if(!started){ started = true; $('#speakRowBtn').textContent = '⏹ 停止'; }
+      if(idx+1<queue.length){ nextPrepared = buildUtterance(queue[idx+1]); }
     };
-    if(i===queue.length-1){
-      u.onend = ()=>{ isReading=false; $('#speakRowBtn').textContent='🔊 読み上げ'; };
-    }
+    u.onend = ()=>{ playSequential(idx+1, nextPrepared); };
     speechSynthesis.speak(u);
-  });
+  }
+  playSequential(0, null);
 });
 
 /* ---------- Googleドキュメント自動同期（一方向：あちら→こちら） ---------- */
@@ -1013,30 +1092,139 @@ function setupGdocAutoSync(){
   }
 }
 
-/* ---------- 台本タブ内 音源プレーヤー ---------- */
-const scriptAudioPlayer = $('#scriptAudioPlayer');
-$('#scriptAudioInput').addEventListener('change', e=>{
-  const file = e.target.files[0];
-  if(!file) return;
-  scriptAudioPlayer.src = URL.createObjectURL(file);
-  state.audioSourceCount = (state.audioSourceCount||0) + 1;
-  state.currentAudioLabel = circledNum(state.audioSourceCount);
+/* ============================================================
+   台本タブ内 音源プレーヤー（要件④：複数音源対応）
+   上から順に ①〜 と名前をつけ、⇧⇩で並べ替え、▶/⏸・シーク・秒数表示を持つ
+   ============================================================ */
+const audioTrackEls = {}; // id -> {audioEl, row}
+
+function circledIndex(i){ return circledNum(i+1); }
+
+function currentTimeSourceFromTracks(){
+  // 再生中のトラックがあればその時刻を優先的にCue記録の時間源候補として使う
+  const playing = state.audioSources.find(a=>{
+    const el = audioTrackEls[a.id] && audioTrackEls[a.id].audioEl;
+    return el && !el.paused && !el.ended;
+  });
+  return playing || null;
+}
+
+function addAudioTrack(file){
+  const id = uid();
+  const url = URL.createObjectURL(file);
+  state.audioSources.push({id, name:'', src:url, startOffset:0});
+  state.currentAudioTrackId = id;
+  state.audioSourceCount = (state.audioSourceCount||0)+1;
+  renderAudioTracks();
   saveState();
+}
+$('#scriptAudioAddInput').addEventListener('change', e=>{
+  const files = Array.from(e.target.files||[]);
+  files.forEach(addAudioTrack);
+  e.target.value='';
 });
-$('#scriptAudioPlayPause').addEventListener('click', ()=>{
-  if(scriptAudioPlayer.paused){ scriptAudioPlayer.play(); $('#scriptAudioPlayPause').textContent='⏸'; }
-  else { scriptAudioPlayer.pause(); $('#scriptAudioPlayPause').textContent='▶'; }
-});
-scriptAudioPlayer.addEventListener('loadedmetadata', ()=>{
-  $('#scriptAudioSeek').max = scriptAudioPlayer.duration || 0;
-});
-scriptAudioPlayer.addEventListener('timeupdate', ()=>{
-  $('#scriptAudioSeek').value = scriptAudioPlayer.currentTime;
-  $('#scriptAudioTime').textContent = `${scriptAudioPlayer.currentTime.toFixed(1)} / ${(scriptAudioPlayer.duration||0).toFixed(1)}秒`;
-});
-$('#scriptAudioSeek').addEventListener('input', e=>{
-  scriptAudioPlayer.currentTime = parseFloat(e.target.value)||0;
-});
+
+function renderAudioTracks(){
+  const wrap = $('#audioTracksList');
+  wrap.innerHTML='';
+  state.audioSources.forEach((track, idx)=>{
+    const row = document.createElement('div');
+    row.className='audio-track-row' + (state.currentAudioTrackId===track.id ? ' audio-track-current':'');
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className='audio-track-name';
+    nameSpan.textContent = circledIndex(idx);
+    nameSpan.title = 'クリックで名前を変更';
+    nameSpan.style.cursor='pointer';
+    nameSpan.addEventListener('click', ()=>{
+      const val = prompt('この音源の名前（省略可）', track.name||'');
+      if(val!==null){ track.name = val.trim(); saveState(); renderAudioTracks(); }
+    });
+    row.appendChild(nameSpan);
+
+    const upBtn = document.createElement('button');
+    upBtn.textContent='⇧'; upBtn.title='上へ';
+    upBtn.disabled = idx===0;
+    upBtn.addEventListener('click', ()=>{
+      if(idx===0) return;
+      [state.audioSources[idx-1], state.audioSources[idx]] = [state.audioSources[idx], state.audioSources[idx-1]];
+      renderAudioTracks(); saveState();
+    });
+    row.appendChild(upBtn);
+
+    const downBtn = document.createElement('button');
+    downBtn.textContent='⇩'; downBtn.title='下へ';
+    downBtn.disabled = idx===state.audioSources.length-1;
+    downBtn.addEventListener('click', ()=>{
+      if(idx===state.audioSources.length-1) return;
+      [state.audioSources[idx+1], state.audioSources[idx]] = [state.audioSources[idx], state.audioSources[idx+1]];
+      renderAudioTracks(); saveState();
+    });
+    row.appendChild(downBtn);
+
+    const playBtn = document.createElement('button');
+    playBtn.textContent='▶';
+    row.appendChild(playBtn);
+
+    const seek = document.createElement('input');
+    seek.type='range'; seek.min='0'; seek.max='100'; seek.step='0.1'; seek.value = track.startOffset||0;
+    row.appendChild(seek);
+
+    const timeSpan = document.createElement('span');
+    timeSpan.className='audio-track-time';
+    timeSpan.textContent='0.0 / 0.0秒';
+    row.appendChild(timeSpan);
+
+    const delBtn = document.createElement('button');
+    delBtn.textContent='✕'; delBtn.title='削除';
+    delBtn.addEventListener('click', ()=>{
+      const el = audioTrackEls[track.id] && audioTrackEls[track.id].audioEl;
+      if(el){ el.pause(); }
+      delete audioTrackEls[track.id];
+      state.audioSources = state.audioSources.filter(a=>a.id!==track.id);
+      if(state.currentAudioTrackId===track.id) state.currentAudioTrackId = null;
+      renderAudioTracks(); saveState();
+    });
+    row.appendChild(delBtn);
+
+    const audioEl = document.createElement('audio');
+    audioEl.src = track.src;
+    audioEl.preload = 'metadata';
+    audioEl.hidden = true;
+    row.appendChild(audioEl);
+
+    playBtn.addEventListener('click', ()=>{
+      if(audioEl.paused){
+        if(track.startOffset && audioEl.currentTime===0) audioEl.currentTime = track.startOffset;
+        audioEl.play();
+        playBtn.textContent='⏸️';
+        state.currentAudioTrackId = track.id;
+        state.currentAudioLabel = track.name ? track.name : circledIndex(idx);
+        $all('.audio-track-row').forEach(r=>r.classList.remove('audio-track-current'));
+        row.classList.add('audio-track-current');
+        saveState();
+      }else{
+        audioEl.pause();
+        playBtn.textContent='▶';
+      }
+    });
+    audioEl.addEventListener('loadedmetadata', ()=>{
+      seek.max = audioEl.duration || 0;
+    });
+    audioEl.addEventListener('timeupdate', ()=>{
+      seek.value = audioEl.currentTime;
+      timeSpan.textContent = `${audioEl.currentTime.toFixed(1)} / ${(audioEl.duration||0).toFixed(1)}秒`;
+    });
+    audioEl.addEventListener('ended', ()=>{ playBtn.textContent='▶'; });
+    seek.addEventListener('input', e=>{
+      audioEl.currentTime = parseFloat(e.target.value)||0;
+      track.startOffset = audioEl.currentTime;
+    });
+
+    audioTrackEls[track.id] = {audioEl, row};
+    wrap.appendChild(row);
+  });
+}
 
 /* ============================================================
    配役色トグル（ステージ用8色・色相順・中央寄せ）
@@ -1061,14 +1249,79 @@ function renderColorToggles(){
     wrap.appendChild(btn);
   });
 }
-function applyColorFilter(){
-  const filter = $('#stageColorFilter');
-  if(state.bgColorMode!=='on' || state.activeColorIndex==null){
-    filter.style.opacity=0;
+let lastAppliedFilterColorHex = undefined;
+// 要件⑩：ストロボくるくるは単一画像を参照し、色は本関数のオーバーレイのみで表現する。
+// 色が変化した瞬間はフェードモードに応じてクロスフェード（フェードイン／フェードアウト）させる。
+function crossfadeColorFilter(newColorHex){
+  const cur = $('#stageColorFilter');
+  const inc = $('#stageColorFilter2');
+  const dur = KURUKURU_CROSSFADE_SEC;
+  const targetOpacity = newColorHex ? .5 : 0;
+
+  if(state.fadeMode==='none'){
+    inc.style.transition='none'; inc.style.opacity=0;
+    cur.style.transition='none';
+    cur.style.backgroundColor = newColorHex || 'transparent';
+    cur.style.opacity = targetOpacity;
     return;
   }
-  filter.style.backgroundColor = currentColorHex();
-  filter.style.opacity = .5;
+  if(state.fadeMode==='in'){
+    // 新規の画像（色）を読み込む際に1秒間かけてフェードイン
+    inc.style.transition='none';
+    inc.style.backgroundColor = newColorHex || 'transparent';
+    inc.style.opacity = 0;
+    void inc.offsetWidth; // reflow
+    inc.style.transition = `opacity ${dur}s linear`;
+    inc.style.opacity = targetOpacity;
+    setTimeout(()=>{
+      cur.style.transition='none';
+      cur.style.backgroundColor = newColorHex || 'transparent';
+      cur.style.opacity = targetOpacity;
+      inc.style.transition='none';
+      inc.style.opacity = 0;
+    }, dur*1000);
+    return;
+  }
+  // fadeMode==='out'：現在の色を100→0で1秒フェードアウトすると同時に、新しい色を0→100で1秒フェードインする
+  inc.style.transition='none';
+  inc.style.backgroundColor = newColorHex || 'transparent';
+  inc.style.opacity = 0;
+  void inc.offsetWidth;
+  cur.style.transition = `opacity ${dur}s linear`;
+  inc.style.transition = `opacity ${dur}s linear`;
+  cur.style.opacity = 0;
+  inc.style.opacity = targetOpacity;
+  setTimeout(()=>{
+    cur.style.transition='none';
+    cur.style.backgroundColor = newColorHex || 'transparent';
+    cur.style.opacity = targetOpacity;
+    inc.style.transition='none';
+    inc.style.opacity = 0;
+  }, dur*1000);
+}
+function applyColorFilter(){
+  const filter = $('#stageColorFilter');
+  const filter2 = $('#stageColorFilter2');
+  const hex = (state.bgColorMode==='on' && state.activeColorIndex!=null) ? currentColorHex() : null;
+
+  if(currentStrobeKey()==='kurukuru'){
+    if(hex!==lastAppliedFilterColorHex){
+      crossfadeColorFilter(hex);
+      lastAppliedFilterColorHex = hex;
+    }
+    return;
+  }
+  // ストロボくるくる以外は従来通りの単純な表示（画像自体に色が焼き込まれているため）
+  filter2.style.transition='none'; filter2.style.opacity=0;
+  if(!hex){
+    filter.style.transition='';
+    filter.style.opacity=0;
+  }else{
+    filter.style.transition='';
+    filter.style.backgroundColor = hex;
+    filter.style.opacity = .5;
+  }
+  lastAppliedFilterColorHex = hex;
 }
 
 /* ============================================================
@@ -1216,7 +1469,6 @@ $all('.stage-btn').forEach(btn=>{
 function applyStrobeClasses(){
   const preview = $('#stagePreview');
   const k = currentStrobeKey();
-  preview.classList.toggle('strobing', k==='chikachika');
   preview.classList.toggle('strobe-kurukuru', k==='kurukuru');
 }
 
@@ -1266,10 +1518,16 @@ function updateStagePreviewMedia(){
     const useVideo = isEffectActive();
     const folder = useVideo ? 'mov' : 'img';
     const stageFolder = STAGE_FOLDER[state.stageState];
-    const strobeFolder = STROBE_FOLDER[currentStrobeKey()];
+    const strobeKey = currentStrobeKey();
+    const strobeFolder = STROBE_FOLDER[strobeKey];
     const colorName = currentColorName();
     const ext = useVideo ? 'mov' : 'png';
-    const path = `${folder}/${stageFolder}/${strobeFolder}/${colorName}.${ext}`;
+    // 要件③：ストロボ静止／ストロボくるくるは色別ファイルを使わず単一ファイルを参照し、
+    // 色は applyColorFilter() のオーバーレイで表現する
+    const singleFile = !useVideo && STROBE_SINGLE_FILE[strobeKey];
+    const path = singleFile
+      ? `${folder}/${stageFolder}/${strobeFolder}/${singleFile}`
+      : `${folder}/${stageFolder}/${strobeFolder}/${colorName}.${ext}`;
     const resolved = resolveAsset(path);
 
     if(useVideo){
@@ -1407,8 +1665,9 @@ video.addEventListener('timeupdate', ()=>{
 
 function currentTimeSource(){
   if(!video.paused && !video.ended) return video.currentTime;
-  if(!scriptAudioPlayer.paused && !scriptAudioPlayer.ended) return scriptAudioPlayer.currentTime;
-  return video.currentTime || scriptAudioPlayer.currentTime || 0;
+  const playingTrack = Object.values(audioTrackEls).find(t=>t.audioEl && !t.audioEl.paused && !t.audioEl.ended);
+  if(playingTrack) return playingTrack.audioEl.currentTime;
+  return video.currentTime || 0;
 }
 function currentLineText(){
   // 要件⑨：読み上げ中の行を自動取得する仕組みは廃止し、常に選択範囲のみを記録する
@@ -1416,7 +1675,17 @@ function currentLineText(){
   if(sel && sel.toString().trim().length>0) return sel.toString().trim();
   return '';
 }
-function recordCue(sec){
+// 要件⑦：Cue一覧の並び順に沿って Fader 列へ 1→2→…→9→0 を再割当てする
+function reassignFaderFrom(startIndex, startDigit){
+  let cursor = startDigit ? DIGIT_CYCLE.indexOf(startDigit) : 0;
+  if(cursor<0) cursor = 0;
+  for(let i=startIndex;i<state.cues.length;i++){
+    state.cues[i].fader = DIGIT_CYCLE[cursor % DIGIT_CYCLE.length];
+    cursor++;
+  }
+}
+
+function recordCue(sec, source){
   const strobeKey = currentStrobeKey();
   const strobeLabel = (state.effectType==='none' || !state.effectType)
     ? (strobeKey==='static' ? '◯' : 'なし')
@@ -1431,17 +1700,23 @@ function recordCue(sec){
     bg: currentColorName() || '',
     effect: effectMark,
     strobe: strobeLabel,
-    fade: FADE_LABEL[state.fadeMode] || 'フェードなし'
+    fade: FADE_LABEL[state.fadeMode] || 'フェードなし',
+    fader: '1',
+    source: source || 'cue',
+    // 要件⑬：反映で画像配置も復元できるよう、記録時点の配置アイテムをスナップショットとして保持する
+    // （一覧の表示項目には出さない隠しデータ）
+    stageItemsSnapshot: JSON.parse(JSON.stringify(state.stageItems||[]))
   };
   state.cues.push(cue);
   state.cues.sort((a,b)=>parseFloat(a.sec)-parseFloat(b.sec));
+  reassignFaderFrom(0);
   renderCueTable();
   saveState();
 }
-$('#videoCueBtn').addEventListener('click', ()=> recordCue(video.currentTime));
-$('#scriptCueBtn').addEventListener('click', ()=> recordCue(scriptAudioPlayer.currentTime || 0));
-$('#cueTabAddBtn').addEventListener('click', ()=> recordCue(currentTimeSource()));
-$('#customfxCueBtn').addEventListener('click', ()=> recordCue(currentTimeSource()));
+$('#videoCueBtn').addEventListener('click', ()=> recordCue(video.currentTime, 'video'));
+$('#scriptCueBtn').addEventListener('click', ()=> recordCue(currentTimeSource(), 'script'));
+$('#cueTabAddBtn').addEventListener('click', ()=> recordCue(currentTimeSource(), 'cue'));
+$('#customfxCueBtn').addEventListener('click', ()=> recordCue(currentTimeSource(), 'cue'));
 
 /* ---------- Cue/独自Effect一覧の内容をステージ画面へ上書き反映（要件⑤） ---------- */
 function applyCueToStage(cue){
@@ -1470,6 +1745,13 @@ function applyCueToStage(cue){
   const revFadeKey = Object.keys(FADE_LABEL).find(k=>FADE_LABEL[k]===cue.fade);
   state.fadeMode = revFadeKey || 'none';
 
+  // 要件⑬：反映時に配置アイテム（画像配置）も一緒に復元する（一覧には表示しない隠しデータ）
+  if(Array.isArray(cue.stageItemsSnapshot)){
+    state.stageItems = JSON.parse(JSON.stringify(cue.stageItemsSnapshot));
+    selectedStageItemId = null;
+    renderStageItems();
+  }
+
   renderColorToggles();
   updateStrobeUI();
   updateEffectUI();
@@ -1495,6 +1777,8 @@ function applyCustomFxToStage(fx){
 const CUE_TBODY_IDS = ['cueTableBody_script','cueTableBody_video','cueTableBody_cue'];
 const CUE_FIELDS = ['sec','line','audio','stage','bg','effect','strobe','fade'];
 function renderCueTable(){
+  // 表示前に、fader未設定の行があれば連番を振っておく
+  if(state.cues.some(c=>!c.fader)) reassignFaderFrom(0);
   CUE_TBODY_IDS.forEach(id=>{
     const body = document.getElementById(id);
     if(!body) return;
@@ -1502,6 +1786,24 @@ function renderCueTable(){
     state.cues.forEach((c,idx)=>{
       const tr = document.createElement('tr');
       tr.className='cue-row';
+
+      // 要件⑦：Fader列（編集可能。編集すると以降の行が自動で1つずつズレて再割当てされる）
+      const faderTd = document.createElement('td');
+      faderTd.textContent = c.fader || '';
+      faderTd.contentEditable = 'true';
+      faderTd.className = 'fader-cell';
+      faderTd.addEventListener('blur', ()=>{
+        const v = (faderTd.textContent||'').trim();
+        if(DIGIT_CYCLE.includes(v)){
+          reassignFaderFrom(idx, v);
+          renderCueTable();
+          saveState();
+        }else{
+          faderTd.textContent = c.fader || '';
+        }
+      });
+      tr.appendChild(faderTd);
+
       CUE_FIELDS.forEach(f=>{
         const td = document.createElement('td');
         td.textContent = c[f];
@@ -1518,7 +1820,7 @@ function renderCueTable(){
       const delTd = document.createElement('td');
       const delBtn = document.createElement('button');
       delBtn.textContent='✕'; delBtn.className='del-btn';
-      delBtn.addEventListener('click', ev=>{ ev.stopPropagation(); state.cues.splice(idx,1); renderCueTable(); saveState(); });
+      delBtn.addEventListener('click', ev=>{ ev.stopPropagation(); state.cues.splice(idx,1); reassignFaderFrom(0); renderCueTable(); saveState(); });
       delTd.appendChild(delBtn);
       tr.appendChild(delTd);
       tr.addEventListener('click', ()=>{ video.currentTime = parseFloat(c.sec)||0; });
@@ -1531,8 +1833,8 @@ function renderCueTable(){
    CSV出力（UTF-8 BOM付き）
    ============================================================ */
 $('#exportCsvBtn').addEventListener('click', ()=>{
-  const headers = ['秒数','セリフ','音源','舞台','背景','Effect','ストロボ','フェード'];
-  const rows = state.cues.map(c=>[c.sec,c.line,c.audio,c.stage,c.bg,c.effect,c.strobe,c.fade]);
+  const headers = ['Fader','秒数','セリフ','音源','舞台','背景','Effect','ストロボ','フェード'];
+  const rows = state.cues.map(c=>[c.fader,c.sec,c.line,c.audio,c.stage,c.bg,c.effect,c.strobe,c.fade]);
   let csv = headers.join(',') + '\n';
   rows.forEach(r=>{
     csv += r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',') + '\n';
@@ -1547,29 +1849,124 @@ $('#exportCsvBtn').addEventListener('click', ()=>{
 });
 
 /* ============================================================
-   JSON エクスポート / インポート
+   要件⑤⑫：ZIP エクスポート / インポート
+   （音源・動画・配置アイテム画像などのバイナリデータも、その時点のデータベース上の
+   　情報としてまとめて1つのZIPファイルに出力／復元できるようにする）
    ============================================================ */
-$('#exportJsonBtn').addEventListener('click', ()=>{
-  const blob = new Blob([JSON.stringify(state, null, 2)], {type:'application/json'});
+function blobToDataUrl(blob){
+  return new Promise((resolve,reject)=>{
+    const r = new FileReader();
+    r.onload = ()=>resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+async function externalizeToZip(zip, counterRef, url, hintExt){
+  if(!url || typeof url!=='string') return url;
+  if(!(url.startsWith('data:') || url.startsWith('blob:'))) return url; // 既存の相対パス等はそのまま
+  try{
+    const blob = await (await fetch(url)).blob();
+    counterRef.n++;
+    let ext = hintExt;
+    if(!ext){
+      const m = /data:[^;]+\/([a-zA-Z0-9.+-]+)/.exec(url);
+      ext = m ? m[1].split('+')[0] : 'bin';
+    }
+    const name = `asset_${counterRef.n}.${ext}`;
+    zip.file('assets/'+name, blob);
+    return 'zipasset:assets/'+name;
+  }catch(e){
+    console.warn('アセットの同梱に失敗しました', e);
+    return url;
+  }
+}
+async function exportStateAsZip(){
+  if(!window.JSZip){ alert('ZIP機能の読み込みに失敗しました（lib/jszip.min.js）。'); return; }
+  const zip = new JSZip();
+  const cloned = JSON.parse(JSON.stringify(state));
+  const counterRef = {n:0};
+
+  // 管理者アセット（img/xxx.png 等）は本来のパスのままZIPへ同梱する
+  const adminPaths = Object.keys(state.adminAssets||{});
+  for(const path of adminPaths){
+    try{
+      const blob = await (await fetch(state.adminAssets[path])).blob();
+      zip.file(path, blob);
+    }catch(e){ console.warn('管理者アセットの同梱に失敗', path, e); }
+  }
+  cloned.adminAssets = {};
+  cloned._adminAssetPaths = adminPaths;
+
+  for(const item of (cloned.stageItems||[])){
+    item.src = await externalizeToZip(zip, counterRef, item.src, 'png');
+  }
+  for(const cue of (cloned.cues||[])){
+    if(Array.isArray(cue.stageItemsSnapshot)){
+      for(const item of cue.stageItemsSnapshot){
+        item.src = await externalizeToZip(zip, counterRef, item.src, 'png');
+      }
+    }
+  }
+  for(const track of (cloned.audioSources||[])){
+    track.src = await externalizeToZip(zip, counterRef, track.src, 'mp3');
+  }
+  cloned.stageVideoOverride = await externalizeToZip(zip, counterRef, cloned.stageVideoOverride, 'mp4');
+
+  zip.file('data.json', JSON.stringify(cloned, null, 2));
+  const blob = await zip.generateAsync({type:'blob'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'stage_planner_data.json';
+  a.download = 'stage_planner_data.zip';
   a.click();
+}
+async function resolveZipAsset(zip, marker){
+  if(typeof marker!=='string' || !marker.startsWith('zipasset:')) return marker;
+  const path = marker.slice('zipasset:'.length);
+  const f = zip.file(path);
+  if(!f) return marker;
+  const blob = await f.async('blob');
+  return await blobToDataUrl(blob);
+}
+async function importStateFromZip(file){
+  if(!window.JSZip){ alert('ZIP機能の読み込みに失敗しました（lib/jszip.min.js）。'); return; }
+  const zip = await JSZip.loadAsync(file);
+  const dataFile = zip.file('data.json');
+  if(!dataFile){ alert('ZIP内にdata.jsonが見つかりません。'); return; }
+  const json = JSON.parse(await dataFile.async('string'));
+
+  for(const item of (json.stageItems||[])) item.src = await resolveZipAsset(zip, item.src);
+  for(const cue of (json.cues||[])){
+    if(Array.isArray(cue.stageItemsSnapshot)){
+      for(const item of cue.stageItemsSnapshot) item.src = await resolveZipAsset(zip, item.src);
+    }
+  }
+  for(const track of (json.audioSources||[])) track.src = await resolveZipAsset(zip, track.src);
+  json.stageVideoOverride = await resolveZipAsset(zip, json.stageVideoOverride);
+
+  json.adminAssets = json.adminAssets || {};
+  const paths = json._adminAssetPaths || [];
+  for(const path of paths){
+    const f = zip.file(path);
+    if(f){
+      const blob = await f.async('blob');
+      json.adminAssets[path] = await blobToDataUrl(blob);
+    }
+  }
+  delete json._adminAssetPaths;
+
+  state = Object.assign(state, json);
+  applyAllSettingsToUI();
+  saveState();
+  alert('読み込みが完了しました。');
+}
+$('#exportJsonBtn').addEventListener('click', ()=>{
+  exportStateAsZip().catch(err=>alert('ZIP出力に失敗しました: '+err.message));
 });
 $('#importJsonInput').addEventListener('change', e=>{
   const file = e.target.files[0];
   if(!file) return;
-  const reader = new FileReader();
-  reader.onload = ev=>{
-    try{
-      const loaded = JSON.parse(ev.target.result);
-      state = Object.assign(state, loaded);
-      applyAllSettingsToUI();
-      saveState();
-      alert('読み込みが完了しました。');
-    }catch(err){ alert('JSONの読み込みに失敗しました: '+err.message); }
-  };
-  reader.readAsText(file);
+  importStateFromZip(file).catch(err=>alert('ZIPの読み込みに失敗しました: '+err.message));
+  e.target.value='';
 });
 
 /* ============================================================
@@ -1580,11 +1977,141 @@ $('#printBtn').addEventListener('click', ()=>{
   printArea.innerHTML = `<h1>台本・キューシート</h1>` + scriptEditor.innerHTML +
     `<h2>キューシート一覧</h2>` +
     `<table border="1" style="width:100%;border-collapse:collapse;">
-      <tr><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th></tr>
-      ${state.cues.map(c=>`<tr><td>${c.sec}</td><td>${c.line}</td><td>${c.audio}</td><td>${c.stage}</td><td>${c.bg}</td><td>${c.effect}</td><td>${c.strobe}</td><td>${c.fade}</td></tr>`).join('')}
+      <tr><th>Fader</th><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th></tr>
+      ${state.cues.map(c=>`<tr><td>${c.fader||''}</td><td>${c.sec}</td><td>${c.line}</td><td>${c.audio}</td><td>${c.stage}</td><td>${c.bg}</td><td>${c.effect}</td><td>${c.strobe}</td><td>${c.fade}</td></tr>`).join('')}
     </table>`;
   window.print();
 });
+
+/* ============================================================
+   要件①②：本番モード＝ゲームモード
+   Cue一覧のFader列で指定された数字（キーボード）、または②の大型ボタン（タップ）を
+   秒数の0.3秒以内の誤差で入力するリズムゲーム。フェードイン／フェードアウトのCueは
+   長押しで再現する。全Cue入力後、3秒間フリーズしてからミス一覧をポップアップ表示する。
+   ============================================================ */
+let gameActive=false, gameIndex=0, gameMisses=[], gameMonitorHandle=null, gameFinishTimer=null;
+const gameKeyPressStart = {};
+
+function sortedGameCues(){
+  return state.cues.slice().sort((a,b)=>parseFloat(a.sec)-parseFloat(b.sec));
+}
+function updateGameHitButtonVisibility(){
+  const show = state.locked && state.cues.length>0;
+  $('#gameHitBtn').classList.toggle('game-active', show);
+}
+function resetGameRound(){
+  gameIndex = 0;
+  gameMisses = [];
+  if(gameFinishTimer){ clearTimeout(gameFinishTimer); gameFinishTimer=null; }
+  $('#gameResultModal').classList.add('hidden');
+}
+function startGameMonitor(){
+  if(!state.locked || state.cues.length===0) return;
+  gameActive = true;
+  updateGameHitButtonVisibility();
+  if(gameMonitorHandle) clearInterval(gameMonitorHandle);
+  gameMonitorHandle = setInterval(gameTick, 100);
+}
+function stopGameMonitor(){
+  gameActive = false;
+  if(gameMonitorHandle){ clearInterval(gameMonitorHandle); gameMonitorHandle=null; }
+}
+function gameElapsedSec(){ return (state.stopwatch.elapsed||0)/1000; }
+function gameTick(){
+  if(!gameActive) return;
+  const cues = sortedGameCues();
+  if(gameIndex>=cues.length){ finishGameIfDue(); return; }
+  const cue = cues[gameIndex];
+  const target = parseFloat(cue.sec)||0;
+  if(gameElapsedSec() > target + GAME_MISS_WINDOW_SEC){
+    // 許容時間を過ぎても入力がなければ「未入力」のミスとして記録し、次のCueへ進む
+    gameMisses.push({cue, errorSec:null});
+    gameIndex++;
+  }
+}
+function finishGameIfDue(){
+  if(gameFinishTimer) return;
+  gameFinishTimer = setTimeout(()=>{
+    stopGameMonitor();
+    showGameResult();
+    gameFinishTimer = null;
+  }, 3000); // 要件①：全Cue入力完了後、3秒間フリーズしてからリザルト表示
+}
+function handleGameInput(pressDurationMs){
+  if(!gameActive) return;
+  const cues = sortedGameCues();
+  if(gameIndex>=cues.length) return;
+  const cue = cues[gameIndex];
+  const target = parseFloat(cue.sec)||0;
+  const errorSec = gameElapsedSec() - target;
+  const isFadeCue = cue.fade==='フェードイン' || cue.fade==='フェードアウト';
+  // フェードCueは長押しで再現する（規定時間未満の短いタップは無効入力として無視する）
+  if(isFadeCue && pressDurationMs < GAME_LONGPRESS_MIN_MS) return;
+  if(Math.abs(errorSec) > GAME_HIT_TOLERANCE_SEC){
+    gameMisses.push({cue, errorSec});
+  }
+  gameIndex++;
+  if(gameIndex>=cues.length) finishGameIfDue();
+}
+document.addEventListener('keydown', e=>{
+  if(!gameActive || e.repeat) return;
+  const key = e.key;
+  if(!DIGIT_CYCLE.includes(key)) return;
+  const cue = sortedGameCues()[gameIndex];
+  if(!cue || cue.fader!==key) return; // Fader列で指定された数字のみ有効
+  if(!(key in gameKeyPressStart)) gameKeyPressStart[key] = performance.now();
+});
+document.addEventListener('keyup', e=>{
+  if(!gameActive) return;
+  const key = e.key;
+  if(!(key in gameKeyPressStart)) return;
+  const dur = performance.now() - gameKeyPressStart[key];
+  delete gameKeyPressStart[key];
+  handleGameInput(dur);
+});
+let gameBtnPressStart = null;
+const gameHitBtnEl = $('#gameHitBtn');
+gameHitBtnEl.addEventListener('pointerdown', e=>{
+  if(!gameActive) return;
+  e.preventDefault();
+  gameBtnPressStart = performance.now();
+  gameHitBtnEl.classList.add('pressed');
+});
+['pointerup','pointercancel','pointerleave'].forEach(evt=>{
+  gameHitBtnEl.addEventListener(evt, ()=>{
+    if(gameBtnPressStart==null) return;
+    const dur = performance.now() - gameBtnPressStart;
+    gameBtnPressStart = null;
+    gameHitBtnEl.classList.remove('pressed');
+    handleGameInput(dur);
+  });
+});
+function showGameResult(){
+  const total = sortedGameCues().length;
+  const missCount = gameMisses.length;
+  $('#gameResultSummary').textContent = `全${total}Cue中 ミス ${missCount}件`;
+  const listEl = $('#gameResultList');
+  if(missCount===0){
+    listEl.innerHTML = '<p>ミスなし！お見事です。</p>';
+  }else{
+    const rows = gameMisses.map(m=>{
+      const cue = m.cue;
+      let errDisplay;
+      if(m.errorSec==null){
+        errDisplay = '未入力';
+      }else if(cue.source==='script'){
+        // 要件①：台本由来のCueは誤差秒数ではなく、記録されている該当行を表示する
+        errDisplay = cue.line ? cue.line : ((m.errorSec>=0?'+':'')+m.errorSec.toFixed(2)+'秒');
+      }else{
+        errDisplay = (m.errorSec>=0?'+':'')+m.errorSec.toFixed(2)+'秒';
+      }
+      return `<tr class="miss-row"><td>${cue.sec}</td><td>${cue.fader||''}</td><td>${(cue.line||'').slice(0,20)}</td><td>${errDisplay}</td></tr>`;
+    }).join('');
+    listEl.innerHTML = `<table><thead><tr><th>秒数</th><th>Fader</th><th>セリフ</th><th>誤差／場所</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+  $('#gameResultModal').classList.remove('hidden');
+}
+$('#gameResultCloseBtn').addEventListener('click', ()=>{ $('#gameResultModal').classList.add('hidden'); });
 
 /* ============================================================
    自動保存
