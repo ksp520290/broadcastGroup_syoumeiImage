@@ -53,6 +53,10 @@ const ORIGINAL_STROBE_CYCLE = ['none','static','kurukuru'];
 // 要件③：ストロボ静止／ストロボくるくるは色別ファイルではなく単一ファイルを参照し、
 // 色は配役色トグルと同じ色フィルター（オーバーレイ）で表現する
 const STROBE_SINGLE_FILE = {static:'静止.png', kurukuru:'くるくる.png'};
+// Ver.6.0 要件7：黄色の画像参照ファイル名を「黄色.png」から「黄.png」に統一する
+// （COLOR_PALETTE の表示名「黄色」自体は変更しない。ファイルパス生成時のみこのマップを使う）
+const COLOR_FILE_NAME = {'黄色':'黄'};
+function colorFileName(name){ return COLOR_FILE_NAME[name] || name; }
 // 要件⑥：ラベル名称変更（内部キー既存/独自はそのまま、表示名のみ変更）
 const EFFECT_SUBMODE_LABEL = {none:'Effectなし', existing:'ミラーボール', original:'照明職人用'};
 const FADE_CYCLE = ['none','in','out'];
@@ -101,7 +105,12 @@ let state = {
   rehearsalVideoSrc:'',
   // 追加要望④⑥⑪⑫：「照明職人用」の現在のNo.（台本/動画/Cueタブの📍Cue記録で自動+1、
   // 照明職人用タブでは手動編集・テスト対象として使用）
-  cfxCurrentNo:1
+  cfxCurrentNo:1,
+  // Ver.6.0 要件3：外部TTS（VOICEVOX/COEIROINKなど）連携設定
+  // serverUrlが空、またはサーバーへの接続に失敗した場合は自動的にWeb Speech APIへフォールバックする
+  ttsSettings:{ serverUrl:'', speaker:'1', speed:1.0, pitch:0.0, intonation:1.0 },
+  // Ver.6.0 要件8：チュートリアルの完了/スキップ状態はLocalStorageで管理するため、
+  // state（localStorage保存対象）には含めない
 };
 
 let swInterval=null, swStart=0;
@@ -282,7 +291,6 @@ $('#googleLogoutBtn').addEventListener('click', ()=>{
 function updateLoginUI(){
   $('#loginBtn').classList.toggle('hidden', state.loggedIn);
   $('#settingsMenuBtn').classList.toggle('hidden', !state.loggedIn);
-  $('#initGatedGroup').classList.toggle('hidden', !state.loggedIn);
   if(!state.loggedIn) $('#settingsMenu').classList.add('hidden');
 }
 $('#loginBtn').addEventListener('click', ()=>{
@@ -546,6 +554,109 @@ document.addEventListener('click', e=>{
 });
 
 /* ============================================================
+   Ver.6.0 要件3.1：音声調整（TTSサーバー・話速・音高・抑揚）
+   ============================================================ */
+function syncVoiceSettingsUI(){
+  const t = state.ttsSettings || {};
+  $('#ttsServerUrlInput').value = t.serverUrl || '';
+  $('#ttsSpeakerInput').value = t.speaker || '1';
+  $('#ttsSpeedInput').value = t.speed!=null ? t.speed : 1.0;
+  $('#ttsPitchInput').value = t.pitch!=null ? t.pitch : 0.0;
+  $('#ttsIntonationInput').value = t.intonation!=null ? t.intonation : 1.0;
+  $('#ttsSpeedValue').textContent = (t.speed!=null ? t.speed : 1.0).toFixed(2);
+  $('#ttsPitchValue').textContent = (t.pitch!=null ? t.pitch : 0.0).toFixed(2);
+  $('#ttsIntonationValue').textContent = (t.intonation!=null ? t.intonation : 1.0).toFixed(2);
+}
+$('#voiceSettingsBtn').addEventListener('click', ()=>{
+  $('#settingsMenu').classList.add('hidden');
+  syncVoiceSettingsUI();
+  $('#voiceSettingsModal').classList.remove('hidden');
+});
+$('#voiceSettingsCloseBtn').addEventListener('click', ()=>{ $('#voiceSettingsModal').classList.add('hidden'); });
+['ttsSpeedInput','ttsPitchInput','ttsIntonationInput'].forEach(id=>{
+  $('#'+id).addEventListener('input', ()=>{
+    const valSpan = {'ttsSpeedInput':'ttsSpeedValue','ttsPitchInput':'ttsPitchValue','ttsIntonationInput':'ttsIntonationValue'}[id];
+    $('#'+valSpan).textContent = parseFloat($('#'+id).value).toFixed(2);
+  });
+});
+$('#voiceSettingsSaveBtn').addEventListener('click', ()=>{
+  state.ttsSettings = {
+    serverUrl: $('#ttsServerUrlInput').value.trim(),
+    speaker: $('#ttsSpeakerInput').value.trim() || '1',
+    speed: parseFloat($('#ttsSpeedInput').value) || 1.0,
+    pitch: parseFloat($('#ttsPitchInput').value) || 0.0,
+    intonation: parseFloat($('#ttsIntonationInput').value) || 1.0
+  };
+  saveState();
+  $('#voiceSettingsModal').classList.add('hidden');
+});
+
+/* ============================================================
+   Ver.6.0 要件8：インタラクティブチュートリアル
+   ・ステップごとのガイド用モーダルダイアログを順次表示する
+   ・ダイアログ表示中も「ログイン」ボタンは常に押下可能
+   ・チュートリアル中にログインボタンが押された場合は即座に中断する
+   ・完了/スキップ状態はLocalStorageに保存し、いつでも再起動できる
+   ============================================================ */
+const TUTORIAL_DONE_KEY = 'stagePlanner_tutorial_done_v6';
+const TUTORIAL_STEPS = [
+  {title:'ようこそ！', body:'このチュートリアルでは「舞台演出プランナー」の基本的な使い方をご案内します。「次へ」で進み、「戻る」でひとつ前の説明に戻れます。'},
+  {title:'初期設定', body:'右上の「初期設定」ボタンから、背景色の有無やEffect（高速切り替え演出）の種類を選び直せます。まずはここでお使いの舞台に合わせた設定を選びましょう。'},
+  {title:'配役パネル', body:'画面左の「👥 配役」パネルを開くと、登場人物・役者名・マイク・読み上げ音声・配役カラーを登録できます。パネルは開閉でき、閉じているときは省スペース表示になります。'},
+  {title:'台本タブ', body:'「台本」タブに台本本文を貼り付け、「話者割り当て」で「話者名：セリフ」の形式から自動的に配役と紐づけます。「🔊 読み上げ」でTTS読み上げも行えます。'},
+  {title:'Cue記録', body:'黄色い「📍 Cue記録」ボタンで、その時点の秒数・セリフ・舞台・背景・Effect・ストロボ・フェードなどをCue一覧に記録します。記録後は各Cueの「反映」ボタンでいつでも呼び出せます。'},
+  {title:'ステージ演出', body:'画面下の照明パネルでは、暗転・全照・半照の切り替え、配役カラーのトグル、ストロボやEffectの切り替えができます。「照明職人用」を選ぶと、独自のNo./ステップ管理による高速切り替え演出が使えます。'},
+  {title:'音声調整', body:'「設定」メニューの「音声調整」から、外部TTSサーバー（VOICEVOX/COEIROINKなど）のURLや話速・音高・抑揚を設定できます。未設定の場合はブラウザ標準の読み上げ機能が自動的に使われます。'},
+  {title:'保存・出力', body:'「ZIP出力」でプロジェクト全体（音源・動画・画像を含む）を1つのZIPファイルとして保存し、「ZIP読込」でいつでも復元できます。「設定」内の「印刷/PDF」から台本・キューシートの印刷も可能です。'},
+  {title:'準備完了です！', body:'以上で基本操作の説明は終わりです。「チュートリアル」ボタンからいつでもこの説明を再度呼び出せます。それでは本番に向けて準備を進めましょう！'}
+];
+let tutorialStepIndex = 0;
+let tutorialInterrupted = false;
+function renderTutorialStep(){
+  const step = TUTORIAL_STEPS[tutorialStepIndex];
+  $('#tutorialStepTitle').textContent = `${step.title}（${tutorialStepIndex+1}/${TUTORIAL_STEPS.length}）`;
+  $('#tutorialStepBody').textContent = step.body;
+  $('#tutorialPrevBtn').disabled = tutorialStepIndex===0;
+  $('#tutorialNextBtn').textContent = (tutorialStepIndex===TUTORIAL_STEPS.length-1) ? '完了' : '次へ';
+  $('#tutorialProgress').textContent = TUTORIAL_STEPS.map((s,i)=> i===tutorialStepIndex ? '●' : '○').join(' ');
+}
+function startTutorial(){
+  tutorialStepIndex = 0;
+  tutorialInterrupted = false;
+  $('#tutorialSkipCheckbox').checked = false;
+  renderTutorialStep();
+  $('#tutorialModal').classList.remove('hidden');
+  document.body.classList.add('tutorial-active');
+}
+function closeTutorial(finished){
+  $('#tutorialModal').classList.add('hidden');
+  document.body.classList.remove('tutorial-active');
+  if(finished || $('#tutorialSkipCheckbox').checked){
+    try{ localStorage.setItem(TUTORIAL_DONE_KEY, '1'); }catch(e){}
+  }
+}
+$('#tutorialBtn').addEventListener('click', startTutorial);
+$('#tutorialPrevBtn').addEventListener('click', ()=>{
+  if(tutorialStepIndex>0){ tutorialStepIndex--; renderTutorialStep(); }
+});
+$('#tutorialNextBtn').addEventListener('click', ()=>{
+  if(tutorialStepIndex<TUTORIAL_STEPS.length-1){
+    tutorialStepIndex++;
+    renderTutorialStep();
+  }else{
+    closeTutorial(true);
+  }
+});
+// 要件8：ダイアログ表示中も「ログイン」ボタンは押下可能。ログインボタンが押されたら
+// チュートリアルを即座に中断する（進捗は保存しない＝次回もチュートリアルは案内される）。
+$('#loginBtn').addEventListener('click', ()=>{
+  if(!document.body.classList.contains('tutorial-active')) return;
+  tutorialInterrupted = true;
+  $('#tutorialModal').classList.add('hidden');
+  document.body.classList.remove('tutorial-active');
+}, true); // キャプチャ段階で先に処理し、通常のログイン処理はそのまま継続させる
+
+/* ============================================================
    ダーク/ライトモード & 本番ロックモード
    ============================================================ */
 function applyAllSettingsToUI(){
@@ -579,6 +690,7 @@ function applyAllSettingsToUI(){
   $('#stageVideoDirectBtn').classList.toggle('active-highlight', !!state.stageVideoOverride);
   renderAudioTracks();
   updateGameHitButtonVisibility();
+  syncVoiceSettingsUI();
 }
 
 function updateCustomFxTabVisibility(){
@@ -714,15 +826,24 @@ function nextMic(){
   return AUTO_MIC_CYCLE[state.cast.length % AUTO_MIC_CYCLE.length];
 }
 
+// Ver.6.0 要件4.2：追加フォームの「音声」ボタンで、次に追加する登場人物の読み上げ音声を先に選べる
+let newCharVoice = VOICE_CYCLE[0];
+$('#newCharVoiceBtn').addEventListener('click', ()=>{
+  const idx = VOICE_CYCLE.indexOf(newCharVoice);
+  newCharVoice = VOICE_CYCLE[(idx+1)%VOICE_CYCLE.length];
+  $('#newCharVoiceBtn').textContent = 'voice:'+newCharVoice;
+});
 $('#castAddBtn').addEventListener('click', ()=>{
   const name = $('#newCharName').value.trim();
   const actor = $('#newActorName').value.trim();
   if(!name) return;
   state.cast.push({
-    id:uid(), name, actor, mic:nextMic(), voice:VOICE_CYCLE[0],
+    id:uid(), name, actor, mic:nextMic(), voice:newCharVoice,
     color: COLOR_PALETTE[state.cast.length % COLOR_PALETTE.length].hex, edit:false
   });
   $('#newCharName').value=''; $('#newActorName').value='';
+  newCharVoice = VOICE_CYCLE[0];
+  $('#newCharVoiceBtn').textContent = '音声';
   renderCastList();
   saveState();
 });
@@ -892,7 +1013,43 @@ function normalizeScriptLines(){
 // 話者自動マッチング→話者割り当て：「話者名(、・/区切りで複数可)：セリフ」形式を検出
 // 要件⑧：改行で話者が切り替わっている場合に誤って複数話者扱いにしないよう、
 // マッチング対象は必ず「その行（1つの要素）」単位に正規化してから判定する
+// Ver.6.0 要件5：選択範囲がある状態で話者割り当てを実行した場合、選択範囲の前後に
+// 一時的な空行を1行ずつ挿入してから台本全体に対して自動割り当てを行い、
+// 処理完了後にその一時空行を削除して元の文章構造へ戻す。
+function withTempBlankLinesAroundSelection(fn){
+  const sel = window.getSelection();
+  const hasSelection = sel && sel.rangeCount>0 && !sel.isCollapsed && sel.toString().trim().length>0;
+  if(!hasSelection){ fn(); return; }
+  const range = sel.getRangeAt(0);
+  const findLineEl = node=>{
+    while(node && node.parentNode!==scriptEditor && node!==scriptEditor) node = node.parentNode;
+    return (node && node!==scriptEditor) ? node : null;
+  };
+  const startLine = findLineEl(range.startContainer);
+  const endLine = findLineEl(range.endContainer);
+  const makeBlank = ()=>{
+    const p = document.createElement('p');
+    p.innerHTML = '<br>';
+    p.dataset.tempBlank = '1';
+    return p;
+  };
+  if(startLine && startLine.parentNode===scriptEditor){
+    scriptEditor.insertBefore(makeBlank(), startLine);
+  }
+  if(endLine && endLine.parentNode===scriptEditor){
+    if(endLine.nextSibling) scriptEditor.insertBefore(makeBlank(), endLine.nextSibling);
+    else scriptEditor.appendChild(makeBlank());
+  }
+  try{ fn(); }
+  finally{
+    scriptEditor.querySelectorAll('[data-temp-blank="1"]').forEach(el=>el.remove());
+  }
+}
+
 $('#autoMatchBtn').addEventListener('click', ()=>{
+  withTempBlankLinesAroundSelection(runAutoMatch);
+});
+function runAutoMatch(){
   normalizeScriptLines();
   state.scriptHTML = scriptEditor.innerHTML;
   const lines = scriptEditor.querySelectorAll('p, div');
@@ -930,7 +1087,7 @@ $('#autoMatchBtn').addEventListener('click', ()=>{
   state.scriptHTML = scriptEditor.innerHTML;
   saveState();
   alert(`${matchedCount} 行を割り当てました。`);
-});
+}
 
 /* ---------- 読み上げ ---------- */
 function getScriptLines(){
@@ -970,8 +1127,9 @@ function voiceParamsForLine(line){
   return VOICE_PARAMS[voiceKey] || VOICE_PARAMS[VOICE_CYCLE[0]];
 }
 
-// 要件⑫：範囲選択がある場合はその範囲内の行のみを読み上げる（範囲外までは読み進めない）
-function getSelectedLineRange(lines){
+// Ver.6.0 要件3.2：範囲選択がある場合は、その先頭セリフから読み上げを開始する
+// （選択範囲の終端では止めず、そのまま台本の最後まで読み進める）
+function getSelectionStartLineIndex(lines){
   const sel = window.getSelection();
   if(!sel || sel.rangeCount===0 || sel.isCollapsed || sel.toString().trim().length===0) return null;
   const range = sel.getRangeAt(0);
@@ -979,42 +1137,79 @@ function getSelectedLineRange(lines){
     while(node && node.parentNode !== scriptEditor && node !== scriptEditor) node = node.parentNode;
     return lines.indexOf(node);
   };
-  let startIdx = findLineIndex(range.startContainer);
-  let endIdx = findLineIndex(range.endContainer);
-  if(startIdx<0) startIdx = 0;
-  if(endIdx<0) endIdx = startIdx;
-  if(startIdx>endIdx){ const t=startIdx; startIdx=endIdx; endIdx=t; }
-  return {startIdx, endIdx};
+  const startIdx = findLineIndex(range.startContainer);
+  return startIdx>=0 ? startIdx : null;
 }
+
+/* ============================================================
+   Ver.6.0 要件3：外部TTS（VOICEVOX / COEIROINK 等）エンジン連携
+   ・「設定」内の「音声調整」で サーバーURL／話者／話速／音高／抑揚 を設定する
+   ・サーバー未設定または通信エラー時は自動的にブラウザ標準の Web Speech API へ
+     フォールバックして読み上げを継続する
+   ============================================================ */
+async function synthesizeExternalTTS(text, params){
+  const base = (state.ttsSettings && state.ttsSettings.serverUrl || '').replace(/\/+$/,'');
+  if(!base) throw new Error('TTSサーバー未設定');
+  const speaker = encodeURIComponent((state.ttsSettings && state.ttsSettings.speaker) || '1');
+  // VOICEVOX/COEIROINK互換の2段階API（audio_query → synthesis）を想定
+  const queryRes = await fetch(`${base}/audio_query?speaker=${speaker}&text=${encodeURIComponent(text)}`, {method:'POST'});
+  if(!queryRes.ok) throw new Error('audio_query失敗 status:'+queryRes.status);
+  const query = await queryRes.json();
+  query.speedScale = params.speed;
+  query.pitchScale = params.pitch;
+  query.intonationScale = params.intonation;
+  const synthRes = await fetch(`${base}/synthesis?speaker=${speaker}`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(query)
+  });
+  if(!synthRes.ok) throw new Error('synthesis失敗 status:'+synthRes.status);
+  return await synthRes.blob();
+}
+// 話者（配役）ごとの話速/音高/抑揚。既存のVOICE_PARAMS（男女トーン）を土台に、
+// 「音声調整」画面の全体設定（state.ttsSettings）を掛け合わせて最終値を決める
+function ttsParamsForLine(line){
+  const base = voiceParamsForLine(line); // {pitch, rate, gender}
+  const t = state.ttsSettings || {};
+  return {
+    speed: (t.speed!=null ? t.speed : 1.0) * (base.rate||1.0),
+    pitch: (t.pitch!=null ? t.pitch : 0.0) + ((base.pitch||1.0)-1.0)*0.1,
+    intonation: (t.intonation!=null ? t.intonation : 1.0)
+  };
+}
+
+let currentReadingLineFullText = '';
+let ttsAudioEl = null;
 
 $('#speakRowBtn').addEventListener('click', ()=>{
   if(isReading){
     speechSynthesis.cancel();
+    if(ttsAudioEl){ ttsAudioEl.pause(); ttsAudioEl.src=''; }
     isReading = false;
     $('#speakRowBtn').textContent = '🔊 読み上げ';
     return;
   }
   const lines = getScriptLines();
-  const range = getSelectedLineRange(lines);
-  const startIndex = range ? range.startIdx : 0;
-  const endIndex = range ? range.endIdx : (lines.length-1);
+  const selStartIdx = getSelectionStartLineIndex(lines);
+  const startIndex = selStartIdx!=null ? selStartIdx : 0;
+  const endIndex = lines.length-1;
 
   const queue = [];
   for(let i=startIndex;i<=endIndex;i++){
     const line = lines[i];
     if(line.classList && line.classList.contains('tokaki')) continue;
     if(lines.length>1 && !line.dataset.mic) continue;
-    const readable = extractReadableText(line).replace(SPEAKER_PREFIX_RE,'').trim();
-    if(readable) queue.push({text:readable, line});
+    const fullText = extractReadableText(line).trim();
+    const readable = fullText.replace(SPEAKER_PREFIX_RE,'').trim();
+    if(readable) queue.push({text:readable, fullText, line});
   }
   if(queue.length===0){ alert('読み上げ可能な行がありません（マイク割当・ト書き設定・選択範囲をご確認ください）。'); return; }
 
   // 音声合成の準備中は「音声生成中」と表示する
   isReading = true;
+  currentReadingLineFullText = '';
   $('#speakRowBtn').textContent = '音声生成中';
   let started = false;
 
-  function buildUtterance(item){
+  function buildWebSpeechUtterance(item){
     const u = new SpeechSynthesisUtterance(item.text);
     u.lang='ja-JP';
     const params = voiceParamsForLine(item.line);
@@ -1024,24 +1219,55 @@ $('#speakRowBtn').addEventListener('click', ()=>{
     if(voice) u.voice = voice;
     return u;
   }
+  // 要件3.1：外部TTSサーバーで音声を用意する。失敗した場合は自動的にWeb Speech API用の
+  // うたたね（フォールバック）データを返す。
+  async function prepareItem(item){
+    try{
+      const params = ttsParamsForLine(item.line);
+      const blob = await synthesizeExternalTTS(item.text, params);
+      return {kind:'audio', blob, item};
+    }catch(err){
+      return {kind:'webspeech', utterance:buildWebSpeechUtterance(item), item};
+    }
+  }
 
-  // 要件⑨：全行を最初にまとめて読み込むのではなく、話者（行）ごとに1つずつ読み込んで再生する。
-  // 現在の行を再生開始したタイミングで、次の行の読み込み（SpeechSynthesisUtterance生成）を開始する
-  // ことで、ストリーミング再生のような逐次進行にする。
-  function playSequential(idx, preparedUtterance){
+  // 要件⑨・要件3.1：話者（行）ごとに1つずつ読み込んで再生する。現在の行の再生を
+  // 開始したタイミングで次の行の先読み（プリロード）を開始することでストリーミング再生のように進行する。
+  // 要件3.1：前のセリフの再生が完全に終了してから「0.3秒後」に次のセリフ再生を開始する。
+  function playSequential(idx, preparedPromise){
     if(idx>=queue.length){
       isReading=false; $('#speakRowBtn').textContent='🔊 読み上げ';
       return;
     }
     const item = queue[idx];
-    const u = preparedUtterance || buildUtterance(item);
-    let nextPrepared = null;
-    u.onstart = ()=>{
-      if(!started){ started = true; $('#speakRowBtn').textContent = '⏹ 停止'; }
-      if(idx+1<queue.length){ nextPrepared = buildUtterance(queue[idx+1]); }
-    };
-    u.onend = ()=>{ playSequential(idx+1, nextPrepared); };
-    speechSynthesis.speak(u);
+    const readyPromise = preparedPromise || prepareItem(item);
+    readyPromise.then(prepared=>{
+      if(!isReading) return; // 途中で停止された
+      let nextPreparedPromise = null;
+      const onLineStart = ()=>{
+        if(!started){ started = true; $('#speakRowBtn').textContent = '⏹ 停止'; }
+        // 要件3.2：現在（および直前）読み上げ中の行のセリフをCue記録用に保持する
+        currentReadingLineFullText = item.fullText;
+        if(idx+1<queue.length){ nextPreparedPromise = prepareItem(queue[idx+1]); }
+      };
+      const advance = ()=>{
+        setTimeout(()=>{ if(isReading) playSequential(idx+1, nextPreparedPromise); }, 300);
+      };
+      if(prepared.kind==='audio'){
+        if(!ttsAudioEl){ ttsAudioEl = new Audio(); }
+        ttsAudioEl.src = URL.createObjectURL(prepared.blob);
+        ttsAudioEl.onplay = onLineStart;
+        ttsAudioEl.onended = advance;
+        ttsAudioEl.onerror = advance;
+        ttsAudioEl.play().catch(advance);
+      }else{
+        const u = prepared.utterance;
+        u.onstart = onLineStart;
+        u.onend = advance;
+        u.onerror = advance;
+        speechSynthesis.speak(u);
+      }
+    });
   }
   playSequential(0, null);
 });
@@ -1450,6 +1676,19 @@ function prefillCfxDefaults(){
 }
 $('#cfxNo').addEventListener('change', ()=> setCfxCurrentNo(parseInt($('#cfxNo').value,10)));
 $('#cfxCurrentNoInput').addEventListener('change', ()=> setCfxCurrentNo(parseInt($('#cfxCurrentNoInput').value,10)));
+// Ver.6.0 要件6.2：No.内のステップを昇順ソートし、番号が重複した場合は
+// 既存の重複以降を連鎖的に+1ずつ押し出す（例：1,2,3 に2が割り込むと 2→3、3→4 にシフト）
+function sortAndShiftCustomEffects(){
+  const byNo = {};
+  state.customEffects.forEach(e=>{ (byNo[e.no] = byNo[e.no]||[]).push(e); });
+  Object.values(byNo).forEach(group=>{
+    group.sort((a,b)=>a.step-b.step);
+    for(let i=1;i<group.length;i++){
+      if(group[i].step<=group[i-1].step){ group[i].step = group[i-1].step+1; }
+    }
+  });
+  state.customEffects.sort((a,b)=> (a.no-b.no) || (a.step-b.step));
+}
 $('#cfxSaveBtn').addEventListener('click', ()=>{
   const no = parseInt($('#cfxNo').value,10) || state.cfxCurrentNo || 1;
   const step = parseInt($('#cfxStep').value,10) || 1;
@@ -1459,11 +1698,14 @@ $('#cfxSaveBtn').addEventListener('click', ()=>{
   state.customEffects.push({id:uid(), no, step, sec, colorName, strobeLabel});
   // 追加要望④：保存時に増加するのは「ステップ」のみ。No.はここでは変えない。
   $('#cfxStep').value = step+1;
+  // 要件6.2：保存のたびに自動ソート＆重複シフトを実行する
+  sortAndShiftCustomEffects();
   renderCustomFxTable();
   saveState();
 });
-/* ---------- 独自Effect テスト再生（要件⑪⑫） ---------- */
+/* ---------- 独自Effect テスト再生（要件⑪⑫、Ver.6.0要件6.3：ループ再生対応） ---------- */
 let cfxPlayTimer = null;
+let cfxLoopActive = false;
 function playCustomEffectSequence(no, opts){
   opts = opts || {};
   if(cfxPlayTimer){ clearTimeout(cfxPlayTimer); cfxPlayTimer = null; }
@@ -1471,26 +1713,39 @@ function playCustomEffectSequence(no, opts){
   if(!steps.length) return false;
   let i = 0;
   function playNext(){
-    if(i>=steps.length){ cfxPlayTimer = null; return; }
+    if(opts.loop && !cfxLoopActive){ cfxPlayTimer = null; return; }
+    if(i>=steps.length){
+      // 要件6.3：最後のステップまで終わっても停止せず、最初のステップへ戻ってループを継続する
+      if(opts.loop){ i = 0; } else { cfxPlayTimer = null; return; }
+    }
     const st = steps[i];
     applyCustomFxToStage(st);
     i++;
-    if(i<steps.length){
-      const waitSec = opts.useStepSec ? (parseFloat(st.sec)||0.1) : (opts.intervalSec||0.2);
-      cfxPlayTimer = setTimeout(playNext, waitSec*1000);
-    }else{
-      cfxPlayTimer = null;
-    }
+    const waitSec = opts.useStepSec ? (parseFloat(st.sec)||0.1) : (opts.intervalSec||0.2);
+    cfxPlayTimer = setTimeout(playNext, waitSec*1000);
   }
   playNext();
   return true;
 }
 $('#cfxTestBtn').addEventListener('click', ()=>{
+  // 要件6.3：再度「テスト」ボタンが押されるとループを停止し、停止した瞬間の画像を表示したまま維持する
+  if(cfxLoopActive){
+    cfxLoopActive = false;
+    if(cfxPlayTimer){ clearTimeout(cfxPlayTimer); cfxPlayTimer = null; }
+    $('#cfxTestBtn').textContent = '▶ テスト';
+    return;
+  }
   const no = parseInt($('#cfxCurrentNoInput').value,10);
   const sec = parseFloat($('#cfxTestSecInput').value) || 0.2;
   if(isNaN(no)){ alert('No.を入力してください。'); return; }
-  const ok = playCustomEffectSequence(no, {intervalSec:sec, useStepSec:false});
-  if(!ok) alert(`No.${no} に登録されたステップが見つかりません。`);
+  cfxLoopActive = true;
+  $('#cfxTestBtn').textContent = '■ 停止';
+  const ok = playCustomEffectSequence(no, {intervalSec:sec, useStepSec:false, loop:true});
+  if(!ok){
+    cfxLoopActive = false;
+    $('#cfxTestBtn').textContent = '▶ テスト';
+    alert(`No.${no} に登録されたステップが見つかりません。`);
+  }
 });
 function renderCustomFxTable(){
   const body = $('#customFxTableBody');
@@ -1509,6 +1764,13 @@ function renderCustomFxTable(){
           const v = NUMERIC_FIELDS[f]==='int' ? parseInt(raw,10) : parseFloat(raw);
           if(!isNaN(v)){
             e[f] = v;
+            // 要件6.2：no/step編集でフォーカスが外れたタイミングで自動ソート＆重複シフトを実行する
+            if(f==='no' || f==='step'){
+              sortAndShiftCustomEffects();
+              saveState();
+              renderCustomFxTable();
+              return;
+            }
             saveState();
           }
           td.textContent = e[f];
@@ -1607,7 +1869,9 @@ function updateStagePreviewMedia(){
   }
 
   if(state.bgColorMode==='on' && currentColorName()){
-    const useVideo = isEffectActive();
+    // Ver.6.0 要件6.3：Effectが「照明職人用」の場合は常に画像（imgフォルダ）を参照する。
+    // 「照明職人用」のステップ切替は高速な静止画切り替えであり、動画（movフォルダ）は使用しない。
+    const useVideo = isEffectActive() && !(state.effectType==='original' && state.effectSubMode==='original');
     const folder = useVideo ? 'mov' : 'img';
     const stageFolder = STAGE_FOLDER[state.stageState];
     const strobeKey = currentStrobeKey();
@@ -1619,7 +1883,7 @@ function updateStagePreviewMedia(){
     const singleFile = !useVideo && STROBE_SINGLE_FILE[strobeKey];
     const path = singleFile
       ? `${folder}/${stageFolder}/${strobeFolder}/${singleFile}`
-      : `${folder}/${stageFolder}/${strobeFolder}/${colorName}.${ext}`;
+      : `${folder}/${stageFolder}/${strobeFolder}/${colorFileName(colorName)}.${ext}`;
     const resolved = resolveAsset(path);
 
     if(useVideo){
@@ -1688,6 +1952,9 @@ $('#stageItemInput').addEventListener('change', e=>{
 /* 要件⑭：ドラッグ&ドロップの代わりに「タップ（クリック）して選択→移動先をタップ」で配置する方式。
    スマホのスクロール操作と競合せず、PC・スマホのどちらでも同じ操作感で快適に動かせる。 */
 let selectedStageItemId = null;
+// Ver.6.0 要件4.4：既存のタップ配置に加えて、ドラッグ＆ドロップでも配置できるようにする
+// （互換性を保つため、既存のクリック配置・選択機能はそのまま維持する）
+let dragStageItemState = null;
 
 function renderStageItems(){
   const layer = $('#stageItemsLayer');
@@ -1722,6 +1989,27 @@ function renderStageItems(){
       renderStageItems();
       updateStagePreviewSelectingClass();
     });
+    if(!state.locked){
+      el.draggable = true;
+      el.addEventListener('dragstart', ev=>{
+        const rect = el.getBoundingClientRect();
+        dragStageItemState = {
+          id: item.id,
+          offsetX: (ev.clientX!=null ? ev.clientX : rect.left) - rect.left,
+          offsetY: (ev.clientY!=null ? ev.clientY : rect.top) - rect.top
+        };
+        el.classList.add('dragging');
+        if(ev.dataTransfer){
+          try{ ev.dataTransfer.setData('text/plain', item.id); }catch(err){}
+          ev.dataTransfer.effectAllowed = 'move';
+        }
+      });
+      el.addEventListener('dragend', ()=>{
+        el.classList.remove('dragging');
+        dragStageItemState = null;
+        $('#stagePreview').classList.remove('dragover-active');
+      });
+    }
     layer.appendChild(el);
   });
   updateStagePreviewSelectingClass();
@@ -1738,6 +2026,29 @@ $('#stagePreview').addEventListener('click', e=>{
   const itemSize = 60; // .stage-item の width/height と合わせる
   item.x = e.clientX - rect.left - itemSize/2;
   item.y = e.clientY - rect.top - itemSize/2;
+  renderStageItems();
+  saveState();
+});
+// Ver.6.0 要件4.4：ドラッグ＆ドロップによる配置（既存のタップ配置と共存）
+$('#stagePreview').addEventListener('dragover', e=>{
+  if(state.locked || !dragStageItemState) return;
+  e.preventDefault();
+  if(e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+  $('#stagePreview').classList.add('dragover-active');
+});
+$('#stagePreview').addEventListener('dragleave', e=>{
+  if(e.target===$('#stagePreview')) $('#stagePreview').classList.remove('dragover-active');
+});
+$('#stagePreview').addEventListener('drop', e=>{
+  $('#stagePreview').classList.remove('dragover-active');
+  if(state.locked || !dragStageItemState) return;
+  e.preventDefault();
+  const item = state.stageItems.find(i=>i.id===dragStageItemState.id);
+  if(!item){ dragStageItemState=null; return; }
+  const rect = $('#stagePreview').getBoundingClientRect();
+  item.x = e.clientX - rect.left - dragStageItemState.offsetX;
+  item.y = e.clientY - rect.top - dragStageItemState.offsetY;
+  dragStageItemState = null;
   renderStageItems();
   saveState();
 });
@@ -1769,7 +2080,9 @@ function currentTimeSource(){
   return video.currentTime || 0;
 }
 function currentLineText(){
-  // 要件⑨：読み上げ中の行を自動取得する仕組みは廃止し、常に選択範囲のみを記録する
+  // Ver.6.0 要件3.2：読み上げ動作中は、現在（または直前）に読み上げている行を
+  // Cue一覧の「セリフ」欄に自動反映する。読み上げ中でない場合は従来どおり選択範囲を使う。
+  if(isReading && currentReadingLineFullText) return currentReadingLineFullText;
   const sel = window.getSelection();
   if(sel && sel.toString().trim().length>0) return sel.toString().trim();
   return '';
@@ -1797,6 +2110,9 @@ function recordCue(sec, source){
       effectMark = String(state.cfxCurrentNo || 1);
       state.cfxCurrentNo = (state.cfxCurrentNo || 1) + 1;
       syncCfxNoInputs();
+      // Ver.6.0 要件6.1：Cue記録時、No.は+1、ステップは1へリセットする。
+      // それまでに編集中だった別ステップ・別パラメータのデータ（state.customEffects）は破棄せず保持する。
+      $('#cfxStep').value = 1;
     }else if(state.effectSubMode==='existing'){
       effectMark = '◯';
     }
@@ -2236,5 +2552,9 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   }
   updateLoginUI();
   updateSWDisplay();
+  // Ver.6.0 要件8：初回訪問時（未完了/未スキップ時）は自動的にチュートリアルを開始する
+  try{
+    if(!localStorage.getItem(TUTORIAL_DONE_KEY)) startTutorial();
+  }catch(e){}
 });
 

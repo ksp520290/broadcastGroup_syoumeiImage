@@ -119,6 +119,48 @@
   </div>
 </div>
 
+<!-- ==================== 音声調整モーダル（Ver.6.0 要件3.1） ==================== -->
+<div id="voiceSettingsModal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <h3>音声調整</h3>
+    <p class="hint">VOICEVOX／COEIROINK など、VOICEVOX互換APIを持つ無料の音声合成エンジンをWebサーバーとして起動し、そのURLを指定してください。サーバーが未設定の場合や通信エラー時は、自動的にブラウザ標準の読み上げ機能（Web Speech API）に切り替わります。</p>
+    <label class="voice-settings-row">TTSサーバーURL
+      <input type="text" id="ttsServerUrlInput" placeholder="例）http://localhost:50021（未入力ならブラウザ標準読み上げのみ使用）">
+    </label>
+    <label class="voice-settings-row">話者ID
+      <input type="text" id="ttsSpeakerInput" placeholder="例）1">
+    </label>
+    <label class="voice-settings-row">話速（スピード）
+      <input type="range" id="ttsSpeedInput" min="0.5" max="2.0" step="0.05" value="1.0">
+      <span id="ttsSpeedValue" class="voice-settings-value">1.00</span>
+    </label>
+    <label class="voice-settings-row">音高（ピッチ）
+      <input type="range" id="ttsPitchInput" min="-0.15" max="0.15" step="0.01" value="0">
+      <span id="ttsPitchValue" class="voice-settings-value">0.00</span>
+    </label>
+    <label class="voice-settings-row">抑揚
+      <input type="range" id="ttsIntonationInput" min="0" max="2.0" step="0.05" value="1.0">
+      <span id="ttsIntonationValue" class="voice-settings-value">1.00</span>
+    </label>
+    <button id="voiceSettingsSaveBtn" class="primary-btn">保存</button>
+    <button id="voiceSettingsCloseBtn" style="width:100%;margin-top:8px;">閉じる</button>
+  </div>
+</div>
+
+<!-- ==================== インタラクティブチュートリアルモーダル（Ver.6.0 要件8） ==================== -->
+<div id="tutorialModal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <h3 id="tutorialStepTitle"></h3>
+    <p id="tutorialStepBody" class="tutorial-step-body"></p>
+    <div class="tutorial-progress" id="tutorialProgress"></div>
+    <label class="tutorial-skip-row"><input type="checkbox" id="tutorialSkipCheckbox"> 次回から表示しない</label>
+    <div class="tutorial-btn-row">
+      <button id="tutorialPrevBtn">戻る</button>
+      <button id="tutorialNextBtn" class="primary-btn">次へ</button>
+    </div>
+  </div>
+</div>
+
 <!-- ==================== フェード秒数モーダル ==================== -->
 <div id="fadeSecModal" class="modal-overlay hidden">
   <div class="modal-box">
@@ -149,9 +191,8 @@
       <label class="file-btn">ZIP読込<input type="file" id="importJsonInput" accept=".zip" hidden></label>
       <button id="reopenInitBtn">初期設定</button>
     </span>
-    <span id="initGatedGroup" class="hidden inline-group">
-      <button id="printBtn">印刷/PDF</button>
-    </span>
+    <!-- Ver.6.0 要件4.1：チュートリアルボタンは「初期設定」と「ログイン」ボタンの間に配置する -->
+    <button id="tutorialBtn" title="チュートリアルを開始">📘 チュートリアル</button>
     <div class="login-area">
       <button id="loginBtn">ログイン</button>
       <button id="settingsMenuBtn" class="hidden">⚙ 設定</button>
@@ -159,6 +200,8 @@
         <button id="exportCsvBtn">CSV出力</button>
         <button id="lockModeToggle">🔓 練習モード</button>
         <button id="fadeSecBtn">フェード秒数</button>
+        <button id="voiceSettingsBtn">音声調整</button>
+        <button id="printBtn">印刷/PDF</button>
         <button id="openGoogleLoginBtn">Googleログイン</button>
         <button id="openAdminBtn">アセット管理</button>
         <button id="openAdminUsersBtn">管理者画面</button>
@@ -189,7 +232,8 @@
       <div class="cast-add-row">
         <input type="text" id="newCharName" placeholder="登場人物名">
         <input type="text" id="newActorName" placeholder="役者名">
-        <button id="castAddBtn">保存</button>
+        <button id="newCharVoiceBtn" class="vertical-btn" title="次に追加する登場人物の読み上げ音声を選択">音声</button>
+        <button id="castAddBtn" class="vertical-btn">追加</button>
       </div>
     </div>
   </aside>
@@ -285,7 +329,7 @@
     <div class="stage-controls">
       <button class="stage-btn" data-stage="anten">暗転</button>
       <button class="stage-btn" data-stage="zensyou">全照</button>
-      <button class="stage-btn" data-stage="hansyou">50%</button>
+      <button class="stage-btn" data-stage="hansyou">半照</button>
     </div>
 
     <div id="stagePreview" class="stage-preview">

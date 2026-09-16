@@ -1,6 +1,9 @@
 :root{
   --bg:#f4f4f4; --fg:#222; --panel:#fff; --border:#ccc; --accent:#5AA4DE;
   --header-h:56px; --fade-sec:1s;
+  /* Ver.6.0 要件4.2：配役パネルの幅は画面横幅に応じて可変にしつつ最小値を確保する */
+  --cast-w-closed: max(4vw, 60px);
+  --cast-w-open: max(20vw, 300px);
 }
 body.dark-mode{
   --bg:#141414; --fg:#e8e8e8; --panel:#1e1e1e; --border:#3a3a3a; --accent:#3a6d90;
@@ -48,8 +51,8 @@ header button, .file-btn{font-size:12px;padding:5px 8px;border:1px solid var(--b
 .settings-menu{position:absolute;right:0;top:110%;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px;display:flex;flex-direction:column;gap:4px;min-width:150px;z-index:200;box-shadow:0 4px 12px rgba(0,0,0,.2);}
 .settings-menu button{width:100%;text-align:left;}
 
-#versionMemoBar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 12px;background:var(--panel);border-bottom:1px solid var(--border);font-size:12px;margin-left:70px;transition:margin-left .2s;position:relative;z-index:10;width:calc(100% - 70px);}
-body.cast-open #versionMemoBar{margin-left:340px;width:calc(100% - 340px);}
+#versionMemoBar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 12px;background:var(--panel);border-bottom:1px solid var(--border);font-size:12px;margin-left:var(--cast-w-closed);transition:margin-left .2s;position:relative;z-index:10;width:calc(100% - var(--cast-w-closed));}
+body.cast-open #versionMemoBar{margin-left:var(--cast-w-open);width:calc(100% - var(--cast-w-open));}
 #versionMemoBar input{flex:1;min-width:160px;padding:4px;border:1px solid var(--border);background:var(--bg);color:var(--fg);}
 #versionMemoList{list-style:none;margin:8px 0 0;padding:0;display:flex;gap:8px;flex-wrap:wrap;width:100%;}
 #versionMemoList li{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 6px;display:flex;align-items:center;gap:6px;}
@@ -57,18 +60,18 @@ body.cast-open #versionMemoBar{margin-left:340px;width:calc(100% - 340px);}
 #versionMemoList .memo-title-btn:hover{color:var(--accent);}
 
 /* ---------- レイアウト ---------- */
-#mainLayout{display:flex;flex-direction:column;height:calc(100vh - var(--header-h) - 40px);margin-left:70px;transition:margin-left .2s;}
+#mainLayout{display:flex;flex-direction:column;height:calc(100vh - var(--header-h) - 40px);margin-left:var(--cast-w-closed);transition:margin-left .2s;}
 @media (min-width:900px) and (orientation:landscape){
   #mainLayout{flex-direction:row;}
   /* 要件③：横画面時のみ、配役パネルが開いた分だけ台本/動画/Cue画面とステージ画面を縮小（右へ圧縮）表示し、重なりを解消する。
      縦画面では画面が細くなりすぎるため、この圧縮は行わない（配役パネルは重なったまま表示される）。 */
-  body.cast-open #mainLayout{margin-left:340px;}
+  body.cast-open #mainLayout{margin-left:var(--cast-w-open);}
 }
 .content-area{flex:1;overflow:auto;padding:10px;border:1px solid var(--border);margin:4px;border-radius:8px;background:var(--panel);position:relative;}
 
-/* ---------- 配役パネル ---------- */
-.cast-panel{position:fixed;left:0;top:var(--header-h);bottom:0;background:var(--panel);border-right:1px solid var(--border);z-index:50;transition:width .2s;overflow:hidden;width:70px;}
-.cast-panel.open{width:340px;overflow:auto;}
+/* ---------- 配役パネル（Ver.6.0 要件4.2：開20%[最小300px]／閉4%[最小60px]） ---------- */
+.cast-panel{position:fixed;left:0;top:var(--header-h);bottom:0;background:var(--panel);border-right:1px solid var(--border);z-index:50;transition:width .2s;overflow:hidden;width:var(--cast-w-closed);}
+.cast-panel.open{width:var(--cast-w-open);overflow:auto;}
 .cast-panel-header{display:flex;justify-content:space-between;align-items:center;padding:8px;cursor:pointer;font-weight:bold;border-bottom:1px solid var(--border);}
 .cast-panel.closed .cast-panel-body{display:none;}
 .cast-panel-body{padding:8px;}
@@ -86,8 +89,25 @@ body.cast-open #versionMemoBar{margin-left:340px;width:calc(100% - 340px);}
 .color-swatch-btn{width:18px;height:18px;border-radius:50%;border:1px solid #000;cursor:pointer;}
 .del-btn{color:#c00;cursor:pointer;background:none;border:none;font-size:14px;}
 .apply-btn{color:#fff;background:var(--accent);border:none;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;}
-.cast-add-row{display:flex;gap:4px;margin-top:8px;}
-.cast-add-row input{flex:1;font-size:12px;padding:4px;}
+.cast-add-row{display:flex;gap:4px;margin-top:8px;align-items:stretch;}
+/* Ver.6.0 要件4.2：開いた状態(20%/最小300px)の中に収まるよう各要素の幅比率を指定する */
+.cast-add-row input{flex:0 1 auto;font-size:12px;padding:4px;width:clamp(24px, 9%, 9999px);min-width:24px;}
+.cast-add-row .vertical-btn{
+  flex:0 0 auto;
+  width:clamp(6px, 2%, 9999px);
+  min-width:22px;
+  writing-mode:vertical-rl;
+  text-orientation:upright;
+  letter-spacing:1px;
+  padding:4px 2px;
+  font-size:11px;
+  border:1px solid var(--border);
+  background:var(--accent);
+  color:#fff;
+  border-radius:4px;
+  cursor:pointer;
+}
+#newCharVoiceBtn.vertical-btn{background:var(--bg);color:var(--fg);}
 
 /* ---------- タブ ---------- */
 .tab-row{display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap;}
@@ -219,3 +239,24 @@ body.locked .script-editor{border:none;}
   @page{margin:15mm;}
 }
 #printFooter{display:none;}
+
+/* ---------- Ver.6.0 要件3.1：音声調整モーダル ---------- */
+.voice-settings-row{display:flex;flex-direction:column;gap:4px;margin-bottom:14px;font-size:13px;font-weight:bold;}
+.voice-settings-row input[type=text]{padding:8px;font-size:13px;border:1px solid var(--border);background:var(--bg);color:var(--fg);border-radius:6px;font-weight:normal;}
+.voice-settings-row input[type=range]{width:100%;}
+.voice-settings-value{align-self:flex-end;font-size:12px;font-weight:normal;opacity:.7;}
+
+/* ---------- Ver.6.0 要件8：チュートリアルモーダル ---------- */
+.tutorial-step-body{line-height:1.7;font-size:14px;min-height:80px;}
+.tutorial-progress{text-align:center;letter-spacing:4px;font-size:10px;margin:8px 0 14px;opacity:.6;}
+.tutorial-skip-row{display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:10px;}
+.tutorial-btn-row{display:flex;gap:8px;}
+.tutorial-btn-row button{flex:1;padding:10px;border:1px solid var(--border);background:var(--bg);color:var(--fg);border-radius:8px;cursor:pointer;}
+.tutorial-btn-row .primary-btn{border:none;}
+/* 要件8：チュートリアル表示中も「ログイン」ボタンは常に押下可能にする */
+body.tutorial-active #loginBtn{position:relative;z-index:1001;pointer-events:auto;box-shadow:0 0 0 3px #FFD166;}
+
+/* ---------- Ver.6.0 要件4.4：配置アイテムのドラッグ＆ドロップ ---------- */
+.stage-item{cursor:grab;}
+.stage-item.dragging{cursor:grabbing;opacity:.6;}
+.stage-preview.dragover-active{outline:3px dashed var(--accent);outline-offset:-3px;}
