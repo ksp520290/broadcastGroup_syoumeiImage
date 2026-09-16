@@ -50,9 +50,10 @@ const STROBE_LABEL_CUE = {static:'◯', kurukuru:'Effect1', none:'なし'};
 const STROBE_BTN_LABEL = {static:'ストロボ静止', kurukuru:'ストロボクルクル', none:'ストロボ✖️'};
 const EXISTING_STROBE_CYCLE = ['static','kurukuru','none'];
 const ORIGINAL_STROBE_CYCLE = ['none','static','kurukuru'];
-// 要件③：ストロボ静止／ストロボくるくるは色別ファイルではなく単一ファイルを参照し、
-// 色は配役色トグルと同じ色フィルター（オーバーレイ）で表現する
-const STROBE_SINGLE_FILE = {static:'静止.png', kurukuru:'くるくる.png'};
+// Ver.7.0 要件5：「ストロボ静止」は img/[舞台]/ストロボ静止/[色].png の色別ファイルを
+// 直接参照する（単一ファイル＋色フィルターのオーバーレイ方式は使用しない）。
+// 「ストロボくるくる」は引き続き単一ファイル＋色フィルターのオーバーレイ方式のまま。
+const STROBE_SINGLE_FILE = {kurukuru:'くるくる.png'};
 // Ver.6.0 要件7：黄色の画像参照ファイル名を「黄色.png」から「黄.png」に統一する
 // （COLOR_PALETTE の表示名「黄色」自体は変更しない。ファイルパス生成時のみこのマップを使う）
 const COLOR_FILE_NAME = {'黄色':'黄'};
@@ -599,19 +600,46 @@ $('#voiceSettingsSaveBtn').addEventListener('click', ()=>{
    ・完了/スキップ状態はLocalStorageに保存し、いつでも再起動できる
    ============================================================ */
 const TUTORIAL_DONE_KEY = 'stagePlanner_tutorial_done_v6';
+// Ver.7.0 要件6：各ステップに対象操作ボタンのセレクタ（target）を持たせ、
+// ハイライト表示とダイアログの自動配置に利用する（null＝対象なし＝中央表示）
 const TUTORIAL_STEPS = [
-  {title:'ようこそ！', body:'このチュートリアルでは「舞台演出プランナー」の基本的な使い方をご案内します。「次へ」で進み、「戻る」でひとつ前の説明に戻れます。'},
-  {title:'初期設定', body:'右上の「初期設定」ボタンから、背景色の有無やEffect（高速切り替え演出）の種類を選び直せます。まずはここでお使いの舞台に合わせた設定を選びましょう。'},
-  {title:'配役パネル', body:'画面左の「👥 配役」パネルを開くと、登場人物・役者名・マイク・読み上げ音声・配役カラーを登録できます。パネルは開閉でき、閉じているときは省スペース表示になります。'},
-  {title:'台本タブ', body:'「台本」タブに台本本文を貼り付け、「話者割り当て」で「話者名：セリフ」の形式から自動的に配役と紐づけます。「🔊 読み上げ」でTTS読み上げも行えます。'},
-  {title:'Cue記録', body:'黄色い「📍 Cue記録」ボタンで、その時点の秒数・セリフ・舞台・背景・Effect・ストロボ・フェードなどをCue一覧に記録します。記録後は各Cueの「反映」ボタンでいつでも呼び出せます。'},
-  {title:'ステージ演出', body:'画面下の照明パネルでは、暗転・全照・半照の切り替え、配役カラーのトグル、ストロボやEffectの切り替えができます。「照明職人用」を選ぶと、独自のNo./ステップ管理による高速切り替え演出が使えます。'},
-  {title:'音声調整', body:'「設定」メニューの「音声調整」から、外部TTSサーバー（VOICEVOX/COEIROINKなど）のURLや話速・音高・抑揚を設定できます。未設定の場合はブラウザ標準の読み上げ機能が自動的に使われます。'},
-  {title:'保存・出力', body:'「ZIP出力」でプロジェクト全体（音源・動画・画像を含む）を1つのZIPファイルとして保存し、「ZIP読込」でいつでも復元できます。「設定」内の「印刷/PDF」から台本・キューシートの印刷も可能です。'},
-  {title:'準備完了です！', body:'以上で基本操作の説明は終わりです。「チュートリアル」ボタンからいつでもこの説明を再度呼び出せます。それでは本番に向けて準備を進めましょう！'}
+  {title:'ようこそ！', body:'このチュートリアルでは「舞台演出プランナー」の基本的な使い方をご案内します。「次へ」で進み、「戻る」でひとつ前の説明に戻れます。', target:null},
+  {title:'初期設定', body:'右上の「初期設定」ボタンから、背景色の有無やEffect（高速切り替え演出）の種類を選び直せます。まずはここでお使いの舞台に合わせた設定を選びましょう。', target:'#reopenInitBtn'},
+  {title:'配役パネル', body:'画面左の「👥 配役」パネルを開くと、登場人物・役者名・マイク・読み上げ音声・配役カラーを登録できます。パネルは開閉でき、閉じているときは省スペース表示になります。', target:'#castPanelToggle'},
+  {title:'台本タブ', body:'「台本」タブに台本本文を貼り付け、「話者割り当て」で「話者名：セリフ」の形式から自動的に配役と紐づけます。「🔊 読み上げ」でTTS読み上げも行えます。', target:'.tab-btn[data-tab="script"]'},
+  {title:'Cue記録', body:'黄色い「📍 Cue記録」ボタンで、その時点の秒数・セリフ・舞台・背景・Effect・ストロボ・フェードなどをCue一覧に記録します。記録後は各Cueの「反映」ボタンでいつでも呼び出せます。', target:'#scriptCueBtn'},
+  {title:'ステージ演出', body:'画面下の照明パネルでは、暗転・全照・半照の切り替え、配役カラーのトグル、ストロボやEffectの切り替えができます。「照明職人用」を選ぶと、独自のNo./ステップ管理による高速切り替え演出が使えます。', target:'#stageArea'},
+  {title:'音声調整', body:'「設定」メニューの「音声調整」から、外部TTSサーバー（VOICEVOX/COEIROINKなど）のURLや話速・音高・抑揚を設定できます。未設定の場合はブラウザ標準の読み上げ機能が自動的に使われます。', target:'#voiceSettingsBtn'},
+  {title:'保存・出力', body:'「ZIP出力」でプロジェクト全体（音源・動画・画像を含む）を1つのZIPファイルとして保存し、「ZIP読込」でいつでも復元できます。「設定」内の「印刷/PDF」から台本・キューシートの印刷も可能です。', target:'#exportJsonBtn'},
+  {title:'準備完了です！', body:'以上で基本操作の説明は終わりです。「チュートリアル」ボタンからいつでもこの説明を再度呼び出せます。それでは本番に向けて準備を進めましょう！', target:null}
 ];
 let tutorialStepIndex = 0;
 let tutorialInterrupted = false;
+// Ver.7.0 要件6：対象ボタンの位置に応じて、ダイアログを画面上部／下部へ自動配置し、
+// 対象ボタンのみをハイライト表示する（背景暗転＋対象部分の切り抜き）
+function positionTutorialHighlight(targetEl){
+  const hl = $('#tutorialHighlight');
+  const box = document.querySelector('#tutorialModal .modal-box');
+  box.classList.remove('tutorial-pos-top','tutorial-pos-bottom','tutorial-pos-center');
+  if(!targetEl || targetEl.offsetParent===null){
+    hl.classList.add('hidden');
+    document.body.classList.remove('tutorial-has-target');
+    box.classList.add('tutorial-pos-center');
+    return;
+  }
+  document.body.classList.add('tutorial-has-target');
+  targetEl.scrollIntoView({block:'center', inline:'center', behavior:'auto'});
+  requestAnimationFrame(()=>{
+    const r = targetEl.getBoundingClientRect();
+    hl.classList.remove('hidden');
+    hl.style.left = (r.left-6)+'px';
+    hl.style.top = (r.top-6)+'px';
+    hl.style.width = (r.width+12)+'px';
+    hl.style.height = (r.height+12)+'px';
+    const isUpperHalf = (r.top + r.height/2) < (window.innerHeight/2);
+    box.classList.add(isUpperHalf ? 'tutorial-pos-bottom' : 'tutorial-pos-top');
+  });
+}
 function renderTutorialStep(){
   const step = TUTORIAL_STEPS[tutorialStepIndex];
   $('#tutorialStepTitle').textContent = `${step.title}（${tutorialStepIndex+1}/${TUTORIAL_STEPS.length}）`;
@@ -619,6 +647,8 @@ function renderTutorialStep(){
   $('#tutorialPrevBtn').disabled = tutorialStepIndex===0;
   $('#tutorialNextBtn').textContent = (tutorialStepIndex===TUTORIAL_STEPS.length-1) ? '完了' : '次へ';
   $('#tutorialProgress').textContent = TUTORIAL_STEPS.map((s,i)=> i===tutorialStepIndex ? '●' : '○').join(' ');
+  const targetEl = step.target ? document.querySelector(step.target) : null;
+  positionTutorialHighlight(targetEl);
 }
 function startTutorial(){
   tutorialStepIndex = 0;
@@ -630,12 +660,16 @@ function startTutorial(){
 }
 function closeTutorial(finished){
   $('#tutorialModal').classList.add('hidden');
+  $('#tutorialHighlight').classList.add('hidden');
   document.body.classList.remove('tutorial-active');
+  document.body.classList.remove('tutorial-has-target');
   if(finished || $('#tutorialSkipCheckbox').checked){
     try{ localStorage.setItem(TUTORIAL_DONE_KEY, '1'); }catch(e){}
   }
 }
 $('#tutorialBtn').addEventListener('click', startTutorial);
+// Ver.7.0 要件6：モーダル右上の✖️ボタンで、任意のタイミングで即座にチュートリアルを中断・終了できる
+$('#tutorialCloseBtn').addEventListener('click', ()=>{ closeTutorial(false); });
 $('#tutorialPrevBtn').addEventListener('click', ()=>{
   if(tutorialStepIndex>0){ tutorialStepIndex--; renderTutorialStep(); }
 });
@@ -653,7 +687,9 @@ $('#loginBtn').addEventListener('click', ()=>{
   if(!document.body.classList.contains('tutorial-active')) return;
   tutorialInterrupted = true;
   $('#tutorialModal').classList.add('hidden');
+  $('#tutorialHighlight').classList.add('hidden');
   document.body.classList.remove('tutorial-active');
+  document.body.classList.remove('tutorial-has-target');
 }, true); // キャプチャ段階で先に処理し、通常のログイン処理はそのまま継続させる
 
 /* ============================================================
@@ -826,12 +862,40 @@ function nextMic(){
   return AUTO_MIC_CYCLE[state.cast.length % AUTO_MIC_CYCLE.length];
 }
 
+// Ver.7.0 要件4.1：「音声」ボタンをクリックすると話者選択モーダルを表示し、
+// 一覧から読み上げ音声（男1〜3／女1〜3）を選ぶ方式に変更する
+let voiceSelectCallback = null;
+function openVoiceSelectModal(current, onSelect){
+  voiceSelectCallback = onSelect;
+  const grid = $('#voiceSelectGrid');
+  grid.innerHTML = '';
+  VOICE_CYCLE.forEach(v=>{
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = v;
+    if(v===current) btn.classList.add('selected');
+    btn.addEventListener('click', ()=>{
+      if(voiceSelectCallback) voiceSelectCallback(v);
+      closeVoiceSelectModal();
+    });
+    grid.appendChild(btn);
+  });
+  $('#voiceSelectModal').classList.remove('hidden');
+}
+function closeVoiceSelectModal(){
+  $('#voiceSelectModal').classList.add('hidden');
+  voiceSelectCallback = null;
+}
+$('#voiceSelectCloseBtn').addEventListener('click', closeVoiceSelectModal);
+
 // Ver.6.0 要件4.2：追加フォームの「音声」ボタンで、次に追加する登場人物の読み上げ音声を先に選べる
 let newCharVoice = VOICE_CYCLE[0];
+$('#newCharVoiceBtn').textContent = newCharVoice;
 $('#newCharVoiceBtn').addEventListener('click', ()=>{
-  const idx = VOICE_CYCLE.indexOf(newCharVoice);
-  newCharVoice = VOICE_CYCLE[(idx+1)%VOICE_CYCLE.length];
-  $('#newCharVoiceBtn').textContent = 'voice:'+newCharVoice;
+  openVoiceSelectModal(newCharVoice, v=>{
+    newCharVoice = v;
+    $('#newCharVoiceBtn').textContent = newCharVoice;
+  });
 });
 $('#castAddBtn').addEventListener('click', ()=>{
   const name = $('#newCharName').value.trim();
@@ -843,7 +907,7 @@ $('#castAddBtn').addEventListener('click', ()=>{
   });
   $('#newCharName').value=''; $('#newActorName').value='';
   newCharVoice = VOICE_CYCLE[0];
-  $('#newCharVoiceBtn').textContent = '音声';
+  $('#newCharVoiceBtn').textContent = newCharVoice;
   renderCastList();
   saveState();
 });
@@ -897,15 +961,17 @@ function renderCastList(){
     row.appendChild(editBtn);
 
     // 要件⑦：「変更」ボタンの右横に読み上げ音声切り替えボタンを追加
+    // Ver.7.0 要件4.1：クリックで話者選択モーダルを開き、一覧から選ぶ方式に変更
     const voiceBtn = document.createElement('button');
     voiceBtn.className='voice-btn editable-only';
     if(!c.voice) c.voice = VOICE_CYCLE[0];
-    voiceBtn.textContent = 'voice:'+c.voice;
-    voiceBtn.title='読み上げ音声の種類を切り替え';
+    voiceBtn.textContent = c.voice;
+    voiceBtn.title='読み上げ音声の種類を選択';
     voiceBtn.addEventListener('click', ()=>{
-      const idx = VOICE_CYCLE.indexOf(c.voice);
-      c.voice = VOICE_CYCLE[(idx+1)%VOICE_CYCLE.length];
-      renderCastList(); saveState();
+      openVoiceSelectModal(c.voice, v=>{
+        c.voice = v;
+        renderCastList(); saveState();
+      });
     });
     row.appendChild(voiceBtn);
 
@@ -1010,6 +1076,87 @@ function normalizeScriptLines(){
   });
 }
 
+// Ver.7.0 要件2.1：台本テキストの解析前に、ルビ（<rt>）の読み文字列および
+// 純粋な空白行・改行コードを除外・標準化したテキストを取得する（話者抽出・カッコ判定の共通処理）
+function getCleanLineText(line){
+  const clone = line.cloneNode(true);
+  clone.querySelectorAll('rt, rp').forEach(n=>n.remove());
+  return (clone.textContent || '').replace(/\u200b/g,'');
+}
+
+// Ver.7.0 要件2.2：カッコ（（）／()）で囲まれた文字列をすべてト書きとして分離する。
+// 行全体が1つのカッコで完全に囲まれている場合はその行全体をト書き行として扱い、
+// 発言の途中にカッコが含まれる場合はカッコ部分の前後に改行を自動挿入して
+// 独立したト書き行として分解抽出する。
+function processLineParens(line){
+  if(line.dataset && line.dataset.tempBlank==='1') return;
+  const text = getCleanLineText(line);
+  if(!text.includes('（') && !text.includes('(')) return;
+
+  const wholeMatch = text.trim().match(/^[（(][^（）()]*[）)]$/);
+  if(wholeMatch){
+    line.classList.add('tokaki');
+    line.dataset.tokaki = '1';
+    return;
+  }
+
+  const html = line.innerHTML;
+  const segments = [];
+  let buf = '', mode = 'normal', i = 0;
+  const pushSeg = ()=>{ if(buf!=='') segments.push({type:mode, html:buf}); buf=''; };
+  while(i<html.length){
+    if(html[i]==='<'){
+      const close = html.indexOf('>', i);
+      if(close===-1){ buf += html.slice(i); break; }
+      buf += html.slice(i, close+1);
+      i = close+1;
+      continue;
+    }
+    const ch = html[i];
+    if((ch==='（' || ch==='(') && mode==='normal'){
+      pushSeg();
+      mode = 'tokaki';
+      buf += ch;
+      i++;
+      continue;
+    }
+    if((ch==='）' || ch===')') && mode==='tokaki'){
+      buf += ch;
+      pushSeg();
+      mode = 'normal';
+      i++;
+      continue;
+    }
+    buf += ch;
+    i++;
+  }
+  pushSeg();
+  if(segments.length<=1) return;
+
+  const speaker = line.dataset.speaker || '';
+  const mic = line.dataset.mic || '';
+  const tag = line.tagName;
+  const frag = document.createDocumentFragment();
+  segments.forEach(seg=>{
+    const el = document.createElement(tag);
+    el.innerHTML = seg.html;
+    if(seg.type==='tokaki'){
+      el.classList.add('tokaki');
+      el.dataset.tokaki = '1';
+    }else if(speaker){
+      // ト書きで分断された後も、同じ話者のセリフの続きとして扱う
+      el.dataset.speaker = speaker;
+      if(mic) el.dataset.mic = mic;
+    }
+    frag.appendChild(el);
+  });
+  line.replaceWith(frag);
+}
+function splitTokakiParentheses(){
+  const lines = Array.from(scriptEditor.children).filter(el=>el.nodeType===1);
+  lines.forEach(processLineParens);
+}
+
 // 話者自動マッチング→話者割り当て：「話者名(、・/区切りで複数可)：セリフ」形式を検出
 // 要件⑧：改行で話者が切り替わっている場合に誤って複数話者扱いにしないよう、
 // マッチング対象は必ず「その行（1つの要素）」単位に正規化してから判定する
@@ -1051,13 +1198,17 @@ $('#autoMatchBtn').addEventListener('click', ()=>{
 });
 function runAutoMatch(){
   normalizeScriptLines();
+  splitTokakiParentheses();
   state.scriptHTML = scriptEditor.innerHTML;
   const lines = scriptEditor.querySelectorAll('p, div');
   const targets = lines.length ? Array.from(lines) : [scriptEditor];
   let matchedCount = 0;
   targets.forEach(line=>{
     line.querySelectorAll('.speaker-dot').forEach(d=>d.remove());
-    const text = (line.textContent || '').replace(/\u200b/g,'');
+    // Ver.7.0 要件2.1：ト書き行・空白行にはアイコン／バーを付与せず、話者抽出の対象外とする
+    if(line.classList.contains('tokaki')) return;
+    const text = getCleanLineText(line);
+    if(!text.trim()) return;
     // 要件⑨：「：」「:」に加え、全角・半角スペースの組み合わせ（2文字以上連続）でも話者名の区切りと判定する
     const m = text.match(/^\s*([^\s:：]{1,30})(?:[：:]|[ \u3000]{2,})/);
     if(m){
@@ -1093,6 +1244,8 @@ function runAutoMatch(){
 function getScriptLines(){
   // 要件⑧：読み上げも改行ごとに独立した行として扱う
   normalizeScriptLines();
+  // Ver.7.0 要件2.2：読み上げ時もカッコ内ト書きを独立した行として分離し、読み飛ばす
+  splitTokakiParentheses();
   state.scriptHTML = scriptEditor.innerHTML;
   const children = Array.from(scriptEditor.children).filter(el=>el.nodeType===1);
   return children.length ? children : [scriptEditor];
@@ -1727,12 +1880,39 @@ function playCustomEffectSequence(no, opts){
   playNext();
   return true;
 }
+// Ver.7.0 要件3.3：Cue一覧の「反映」ボタンによる独自Effectのプレビュー再生は、
+// この「照明職人用」タブのテスト再生と同じタイマー機構を共有し、常にどちらか1つだけが
+// ループ再生される（排他制御）ようにする。
+function stopAnyEffectLoop(){
+  if(cfxPlayTimer){ clearTimeout(cfxPlayTimer); cfxPlayTimer = null; }
+  cfxLoopActive = false;
+  cueRowLoopActive = false;
+  cueRowLoopNo = null;
+  const testBtn = $('#cfxTestBtn');
+  if(testBtn) testBtn.textContent = '▶ テスト';
+}
+let cueRowLoopActive = false;
+let cueRowLoopNo = null;
+function startCueRowEffectLoop(no, opts){
+  stopAnyEffectLoop();
+  cfxLoopActive = true;
+  cueRowLoopActive = true;
+  cueRowLoopNo = no;
+  const ok = playCustomEffectSequence(no, Object.assign({loop:true}, opts||{}));
+  if(!ok) stopAnyEffectLoop();
+  return ok;
+}
+// Ver.7.0 要件3.3：反映ボタン以外の任意領域をクリック（フォーカス外）したタイミングで停止する
+document.addEventListener('click', ev=>{
+  if(!cueRowLoopActive) return;
+  if(ev.target && ev.target.closest && ev.target.closest('.apply-btn')) return;
+  stopAnyEffectLoop();
+}, true);
+
 $('#cfxTestBtn').addEventListener('click', ()=>{
   // 要件6.3：再度「テスト」ボタンが押されるとループを停止し、停止した瞬間の画像を表示したまま維持する
   if(cfxLoopActive){
-    cfxLoopActive = false;
-    if(cfxPlayTimer){ clearTimeout(cfxPlayTimer); cfxPlayTimer = null; }
-    $('#cfxTestBtn').textContent = '▶ テスト';
+    stopAnyEffectLoop();
     return;
   }
   const no = parseInt($('#cfxCurrentNoInput').value,10);
@@ -1742,8 +1922,7 @@ $('#cfxTestBtn').addEventListener('click', ()=>{
   $('#cfxTestBtn').textContent = '■ 停止';
   const ok = playCustomEffectSequence(no, {intervalSec:sec, useStepSec:false, loop:true});
   if(!ok){
-    cfxLoopActive = false;
-    $('#cfxTestBtn').textContent = '▶ テスト';
+    stopAnyEffectLoop();
     alert(`No.${no} に登録されたステップが見つかりません。`);
   }
 });
@@ -1781,7 +1960,7 @@ function renderCustomFxTable(){
     const applyTd=document.createElement('td');
     const applyBtn=document.createElement('button');
     applyBtn.textContent='反映'; applyBtn.className='apply-btn';
-    applyBtn.addEventListener('click', ()=>{ applyCustomFxToStage(e); });
+    applyBtn.addEventListener('click', ()=>{ stopAnyEffectLoop(); applyCustomFxToStage(e); });
     applyTd.appendChild(applyBtn);
     tr.appendChild(applyTd);
     const delTd=document.createElement('td');
@@ -2168,9 +2347,13 @@ function applyCueToStage(cue){
       state.effectSubMode = cue.effect ? 'original' : 'none';
       // 追加要望⑫：Effect欄にNo.（数字）が記録されている場合、そのNo.に登録済みの
       // ステップ列を、各ステップに記録された秒数どおりに高速で順送り再生する
+      // Ver.7.0 要件3.3：単発再生ではなくループ再生とし、他行の反映が押されるまで
+      // 排他的に再生し続ける
       const cueNo = parseInt(cue.effect, 10);
       if(cue.effect && !isNaN(cueNo)){
-        playCustomEffectSequence(cueNo, {useStepSec:true});
+        startCueRowEffectLoop(cueNo, {useStepSec:true});
+      }else{
+        stopAnyEffectLoop();
       }
     }
   }
@@ -2207,7 +2390,8 @@ function applyCustomFxToStage(fx){
 }
 
 const CUE_TBODY_IDS = ['cueTableBody_script','cueTableBody_video','cueTableBody_cue'];
-const CUE_FIELDS = ['sec','line','audio','stage','bg','effect','strobe','fade'];
+// Ver.7.0 要件3.2：列の並び順を「順番/秒数/音源/セリフ/舞台/背景/Effect/ストロボ/フェード/反映/✖️」に変更
+const CUE_FIELDS = ['sec','audio','line','stage','bg','effect','strobe','fade'];
 const FADER_HEADER_IDS = {cueTableBody_script:'faderHeader_script', cueTableBody_video:'faderHeader_video', cueTableBody_cue:'faderHeader_cue'};
 
 // 追加要望③：ログインしていない場合、Fader列は「順番」列（並び替え用の通常の数字）になる
@@ -2306,9 +2490,19 @@ function renderCueTable(){
       CUE_FIELDS.forEach(f=>{
         const td = document.createElement('td');
         td.textContent = c[f];
+        // Ver.7.0 要件3.1：セリフ列は1行固定表示＋はみ出し部分を省略記号にし、
+        // ホバー時にツールチップで全文を表示する
+        if(f==='line'){
+          td.classList.add('cue-line-cell');
+          td.title = c[f] || '';
+        }
         if(!state.locked){
           td.contentEditable = 'true';
-          td.addEventListener('blur', ()=>{ c[f]=td.textContent; saveState(); });
+          td.addEventListener('blur', ()=>{
+            c[f]=td.textContent;
+            if(f==='line') td.title = td.textContent || '';
+            saveState();
+          });
         }
         tr.appendChild(td);
       });
@@ -2317,7 +2511,15 @@ function renderCueTable(){
       applyBtn.textContent='反映'; applyBtn.className='apply-btn';
       applyBtn.addEventListener('click', ev=>{
         ev.stopPropagation();
-        if(state.locked){ reflectCueForGame(c); } else { applyCueToStage(c); }
+        if(state.locked){ reflectCueForGame(c); return; }
+        // Ver.7.0 要件3.3：同じ行の「反映」を再度押した場合はループ再生を停止する（トグル）
+        const cueNo = parseInt(c.effect, 10);
+        const isEffectRow = state.effectType==='original' && c.effect && !isNaN(cueNo);
+        if(isEffectRow && cueRowLoopActive && cueRowLoopNo===cueNo){
+          stopAnyEffectLoop();
+          return;
+        }
+        applyCueToStage(c);
       });
       applyTd.appendChild(applyBtn);
       tr.appendChild(applyTd);
@@ -2343,8 +2545,9 @@ function renderCueTable(){
    CSV出力（UTF-8 BOM付き）
    ============================================================ */
 $('#exportCsvBtn').addEventListener('click', ()=>{
-  const headers = ['Fader','秒数','セリフ','音源','舞台','背景','Effect','ストロボ','フェード'];
-  const rows = state.cues.map(c=>[c.fader,c.sec,c.line,c.audio,c.stage,c.bg,c.effect,c.strobe,c.fade]);
+  // Ver.7.0 要件3.2：CSV出力もCue一覧の列順（順番/秒数/音源/セリフ/…）に合わせる
+  const headers = ['Fader','秒数','音源','セリフ','舞台','背景','Effect','ストロボ','フェード'];
+  const rows = state.cues.map(c=>[c.fader,c.sec,c.audio,c.line,c.stage,c.bg,c.effect,c.strobe,c.fade]);
   let csv = headers.join(',') + '\n';
   rows.forEach(r=>{
     csv += r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',') + '\n';
@@ -2491,8 +2694,8 @@ $('#printBtn').addEventListener('click', ()=>{
   printArea.innerHTML = `<h1>台本・キューシート</h1>` + scriptEditor.innerHTML +
     `<h2>キューシート一覧</h2>` +
     `<table border="1" style="width:100%;border-collapse:collapse;">
-      <tr><th>Fader</th><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th></tr>
-      ${state.cues.map(c=>`<tr><td>${c.fader||''}</td><td>${c.sec}</td><td>${c.line}</td><td>${c.audio}</td><td>${c.stage}</td><td>${c.bg}</td><td>${c.effect}</td><td>${c.strobe}</td><td>${c.fade}</td></tr>`).join('')}
+      <tr><th>Fader</th><th>秒数</th><th>音源</th><th>セリフ</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th></tr>
+      ${state.cues.map(c=>`<tr><td>${c.fader||''}</td><td>${c.sec}</td><td>${c.audio}</td><td>${c.line}</td><td>${c.stage}</td><td>${c.bg}</td><td>${c.effect}</td><td>${c.strobe}</td><td>${c.fade}</td></tr>`).join('')}
     </table>`;
   window.print();
 });

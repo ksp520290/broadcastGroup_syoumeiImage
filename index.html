@@ -147,9 +147,20 @@
   </div>
 </div>
 
-<!-- ==================== インタラクティブチュートリアルモーダル（Ver.6.0 要件8） ==================== -->
+<!-- ==================== 話者選択モーダル（Ver.7.0 要件4.1） ==================== -->
+<div id="voiceSelectModal" class="modal-overlay hidden">
+  <div class="modal-box voice-select-box">
+    <button id="voiceSelectCloseBtn" class="modal-close-x" title="閉じる">✖️</button>
+    <h3>読み上げ音声を選択</h3>
+    <div class="voice-select-grid" id="voiceSelectGrid"></div>
+  </div>
+</div>
+
+<!-- ==================== インタラクティブチュートリアルモーダル（Ver.6.0 要件8／Ver.7.0 要件6：ハイライト＆動的配置対応） ==================== -->
+<div id="tutorialHighlight" class="tutorial-highlight hidden"></div>
 <div id="tutorialModal" class="modal-overlay hidden">
   <div class="modal-box">
+    <button id="tutorialCloseBtn" class="modal-close-x" title="チュートリアルを閉じる">✖️</button>
     <h3 id="tutorialStepTitle"></h3>
     <p id="tutorialStepBody" class="tutorial-step-body"></p>
     <div class="tutorial-progress" id="tutorialProgress"></div>
@@ -271,10 +282,10 @@
         </div>
         <div class="game-cue-panel">
           <h3 class="cue-mirror-title">Cue一覧</h3>
-          <table class="cue-table">
-            <thead><tr><th id="faderHeader_script">Fader</th><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th><th>反映</th><th></th></tr></thead>
+          <div class="cue-table-wrap"><table class="cue-table cue-main-table">
+            <thead><tr><th id="faderHeader_script">Fader</th><th>秒数</th><th>音源</th><th>セリフ</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th><th>反映</th><th></th></tr></thead>
             <tbody id="cueTableBody_script"></tbody>
-          </table>
+          </table></div>
         </div>
       </div>
     </div>
@@ -291,10 +302,10 @@
         </div>
         <div class="game-cue-panel">
           <h3 class="cue-mirror-title">Cue一覧</h3>
-          <table class="cue-table">
-            <thead><tr><th id="faderHeader_video">Fader</th><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th><th>反映</th><th></th></tr></thead>
+          <div class="cue-table-wrap"><table class="cue-table cue-main-table">
+            <thead><tr><th id="faderHeader_video">Fader</th><th>秒数</th><th>音源</th><th>セリフ</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th><th>反映</th><th></th></tr></thead>
             <tbody id="cueTableBody_video"></tbody>
-          </table>
+          </table></div>
         </div>
       </div>
     </div>
@@ -303,10 +314,10 @@
       <div class="cue-capture-row">
         <button id="cueTabAddBtn" class="cue-record-btn">📍 Cue記録</button>
       </div>
-      <table class="cue-table">
-        <thead><tr><th id="faderHeader_cue">Fader</th><th>秒数</th><th>セリフ</th><th>音源</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th><th>反映</th><th></th></tr></thead>
+      <div class="cue-table-wrap"><table class="cue-table cue-main-table">
+        <thead><tr><th id="faderHeader_cue">Fader</th><th>秒数</th><th>音源</th><th>セリフ</th><th>舞台</th><th>背景</th><th>Effect</th><th>ストロボ</th><th>フェード</th><th>反映</th><th></th></tr></thead>
         <tbody id="cueTableBody_cue"></tbody>
-      </table>
+      </table></div>
     </div>
 
     <div id="tab-customfx" class="tab-pane">
