@@ -196,10 +196,10 @@ body.dark-mode .script-editor *{color:inherit;}
 .cue-main-table th:nth-child(1),.cue-main-table td:nth-child(1){width:4.35%;}   /* 順番/Fader */
 .cue-main-table th:nth-child(2),.cue-main-table td:nth-child(2){width:8.70%;}   /* 秒数 */
 .cue-main-table th:nth-child(3),.cue-main-table td:nth-child(3){width:4.35%;}   /* 音源 */
-.cue-main-table th:nth-child(4),.cue-main-table td:nth-child(4){width:34.78%;}  /* セリフ */
+.cue-main-table th:nth-child(4),.cue-main-table td:nth-child(4){width:13.43%;}  /* セリフ */
 .cue-main-table th:nth-child(5),.cue-main-table td:nth-child(5){width:4.35%;}   /* 舞台 */
 .cue-main-table th:nth-child(6),.cue-main-table td:nth-child(6){width:8.70%;}   /* 背景 */
-.cue-main-table th:nth-child(7),.cue-main-table td:nth-child(7){width:4.35%;}   /* Effect */
+.cue-main-table th:nth-child(7),.cue-main-table td:nth-child(7){width:8.70%;}   /* Effect */
 .cue-main-table th:nth-child(8),.cue-main-table td:nth-child(8){width:8.70%;}   /* ストロボ */
 .cue-main-table th:nth-child(9),.cue-main-table td:nth-child(9){width:8.70%;}   /* フェード */
 .cue-main-table th:nth-child(10),.cue-main-table td:nth-child(10){width:8.70%;} /* 反映 */
