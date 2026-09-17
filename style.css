@@ -194,15 +194,15 @@ body.dark-mode .script-editor *{color:inherit;}
 .cue-table-wrap{width:100%;overflow-x:auto;}
 .cue-main-table{table-layout:fixed;min-width:640px;}
 .cue-main-table th:nth-child(1),.cue-main-table td:nth-child(1){width:4.35%;}   /* 順番/Fader */
-.cue-main-table th:nth-child(2),.cue-main-table td:nth-child(2){width:8.70%;}   /* 秒数 */
+.cue-main-table th:nth-child(2),.cue-main-table td:nth-child(2){width:4.35%;}   /* 秒数 */
 .cue-main-table th:nth-child(3),.cue-main-table td:nth-child(3){width:4.35%;}   /* 音源 */
-.cue-main-table th:nth-child(4),.cue-main-table td:nth-child(4){width:13.43%;}  /* セリフ */
+.cue-main-table th:nth-child(4),.cue-main-table td:nth-child(4){width:14.43%;}  /* セリフ */
 .cue-main-table th:nth-child(5),.cue-main-table td:nth-child(5){width:4.35%;}   /* 舞台 */
-.cue-main-table th:nth-child(6),.cue-main-table td:nth-child(6){width:8.70%;}   /* 背景 */
-.cue-main-table th:nth-child(7),.cue-main-table td:nth-child(7){width:8.70%;}   /* Effect */
-.cue-main-table th:nth-child(8),.cue-main-table td:nth-child(8){width:8.70%;}   /* ストロボ */
-.cue-main-table th:nth-child(9),.cue-main-table td:nth-child(9){width:8.70%;}   /* フェード */
-.cue-main-table th:nth-child(10),.cue-main-table td:nth-child(10){width:8.70%;} /* 反映 */
+.cue-main-table th:nth-child(6),.cue-main-table td:nth-child(6){width:5.70%;}   /* 背景 */
+.cue-main-table th:nth-child(7),.cue-main-table td:nth-child(7){width:4.35%;}   /* Effect */
+.cue-main-table th:nth-child(8),.cue-main-table td:nth-child(8){width:5.70%;}   /* ストロボ */
+.cue-main-table th:nth-child(9),.cue-main-table td:nth-child(9){width:5.70%;}   /* フェード */
+.cue-main-table th:nth-child(10),.cue-main-table td:nth-child(10){width:6.70%;} /* 反映 */
 .cue-main-table th:nth-child(11),.cue-main-table td:nth-child(11){width:4.35%;} /* ✖️ */
 /* セリフ列は1行固定表示＋はみ出し部分を省略記号にする（全文はtitle属性のツールチップで表示） */
 .cue-main-table td.cue-line-cell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;}
